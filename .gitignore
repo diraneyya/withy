@@ -1,0 +1,23 @@
+# Generated vocabulary artifacts — a compact map of internal terminology.
+# Build these at install time or in CI; never commit them.
+vocab_index.json
+vocab_prompt.txt
+whisper-vocabulary.txt
+
+# Dictation history contains, by definition, everything the user has dictated.
+history.jsonl
+
+# Models
+*.bin
+*.gguf
+
+# Audio
+*.wav
+*.mp3
+*.aiff
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
