@@ -198,16 +198,25 @@ def cmd_diagnose(a) -> int:
 
     if a.mic:
         print("microphone start latency")
-        capture.start()
+        # The window must be measured from BEFORE start() to the moment the
+        # recorder is cut — and must NOT include stop()'s teardown, which waits
+        # up to 3s for ffmpeg to flush the WAV header. An earlier version timed
+        # the teardown too and reported ~3,700 ms of "lost speech" for what was
+        # really ~560 ms: the instrument was measuring itself.
+        WINDOW = 2.0
         t0 = time.time()
-        time.sleep(2.0)
+        capture.start()
+        time.sleep(WINDOW)
+        t_cut = time.time()
         wav = capture.stop()
         if wav:
             from . import transcribe as tr
             dur = tr.clip_duration(wav)
-            lost = max(0.0, (time.time() - t0) - dur)
-            print(f"  held open {time.time()-t0:.2f}s, captured {dur:.2f}s "
-                  f"-> ~{lost*1000:.0f} ms lost at the start")
+            window = t_cut - t0
+            lost = max(0.0, window - dur)
+            print(f"  window {window:.2f}s, captured {dur:.2f}s "
+                  f"-> ~{lost*1000:.0f} ms lost before the device opened")
+            print("  (speech spoken in that gap never reaches the model)")
             print("  (that gap is speech spoken before the device opened)")
             wav.unlink(missing_ok=True)
         else:
