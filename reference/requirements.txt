@@ -1,3 +1,0 @@
-# Only the correction stage has a Python dependency.
-# Transcription needs the whisper-cpp and ffmpeg binaries, not pip packages.
-jellyfish>=1.0    # metaphone phonetic keys for the vocabulary matcher

@@ -190,6 +190,26 @@ rather than clearing.
 
 ---
 
+### The installer hangs forever with no output
+
+**Symptom:** installation completes on disk — binaries in place, config written —
+but the script never exits and prints nothing.
+**Cause:** `hs -c 'hs.reload()'`. The reload tears down the very IPC channel the
+`hs` client is blocked on reading, so the client waits for a reply that can never
+come. Nothing is wrong; nothing will ever finish either.
+**Fix:** detach it and do not wait: `( hs -c 'hs.reload()' >/dev/null 2>&1 & )`.
+The same applies to any command that asks a process to restart itself through a
+channel you are holding open.
+
+### A menubar tool clobbers another one's configuration
+
+**Cause:** Hammerspoon has a single `init.lua`, so two tools that each want to
+*be* that file cannot coexist — and an installer that writes it destroys
+whatever the user already ran.
+**Fix:** ship as a **Spoon** and APPEND one `hs.loadSpoon(...)` line, after
+backing the file up. Verify coexistence by checking the other tool's own log
+after install, not by assuming.
+
 ## Deployment
 
 ### It works on the developer's machine and nowhere else

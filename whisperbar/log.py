@@ -1,5 +1,9 @@
-"""Single-line append logging. Deliberately trivial — the point is that every
-stage writes one, because almost every failure in this system is silent."""
+"""Append-only logging and the UI state file.
+
+Every stage writes a line, because almost every failure in a dictation pipeline
+is silent: a zero-byte WAV, a dropped keystroke tail, a model that returned
+nothing. The log is how any of that becomes visible.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +22,9 @@ def log(msg: str) -> None:
 
 
 def set_state(state: str) -> None:
-    """Publish the current phase for a UI overlay to poll.
+    """Publish the current phase so the menubar can render it.
 
-    States: recording | transcribing | injecting | idle. One writer per phase;
-    whoever writes last owns what the user sees.
+    States: recording | transcribing | formatting | typing | idle
     """
     try:
         config.STATE_FILE.write_text(state)
