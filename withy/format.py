@@ -37,6 +37,8 @@ import difflib
 import json
 import os
 import re
+import shutil
+import subprocess
 import urllib.error
 import urllib.request
 
@@ -46,6 +48,44 @@ from .vocab import norm
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+def load_prompt() -> str:
+    """The polishing instructions, from the user's file if they have one.
+
+    Two shapes are accepted, because the obvious way to edit a prompt is to
+    write instructions, not to maintain a format string:
+      - if the file contains "{text}", it is used as the whole template
+      - otherwise it replaces only the INSTRUCTIONS, and Withy still appends
+        the vocabulary hint and the transcript itself
+    Either way a broken file degrades to the built-in prompt rather than
+    breaking dictation.
+    """
+    f = config.PROMPT_FILE
+    if not f.exists():
+        return PROMPT
+    try:
+        body = f.read_text(encoding="utf-8").strip()
+    except OSError:
+        return PROMPT
+    # Strip the comment header FIRST. It explains the {text} placeholder by
+    # naming it, so scanning the raw file finds a placeholder that is only being
+    # described — and the transcript then gets substituted into the explanation.
+    # (Found by feeding the resulting prompt to an assistant, which read it back
+    # and pointed at the comment line.)
+    body = "\n".join(l for l in body.splitlines()
+                     if not l.lstrip().startswith("#")).strip()
+    if not body:
+        return PROMPT
+    if "{text}" in body:
+        return body if "{vocab}" in body else body.replace("{text}", "{vocab}\n\nTranscript:\n{text}")
+    return body + "{vocab}\n\nTranscript:\n{text}"
+
+
+def ensure_prompt_file() -> None:
+    config.ensure_dirs()
+    if not config.PROMPT_FILE.exists():
+        config.PROMPT_FILE.write_text(PROMPT_FILE_SAMPLE, encoding="utf-8")
+
 
 def _api_key() -> str | None:
     """The hosted-backend key.
@@ -92,12 +132,64 @@ def _openai(model: str, prompt: str, timeout: int) -> str | None:
     return None
 
 
+# Command-line assistants, in preference order. Each entry is the argv that
+# takes a prompt on stdin and prints the answer on stdout. This is how a
+# machine that already has a licensed assistant installed can polish without
+# anyone shipping an API key.
+# `--model haiku` is not an optimisation, it is what makes this usable: the same
+# prompt took 76.7s on the default model and 16.6s on haiku, measured. Polishing
+# is a formatting task, not a reasoning one.
+CLI_CANDIDATES = [
+    ["claude", "-p", "--model", "haiku"],
+    ["aifx", "agent", "run", "claude", "-p", "--model", "haiku"],
+    ["llm"],
+]
+
+
+def detect_cli() -> list[str] | None:
+    """The first available command-line assistant, or None."""
+    configured = config.settings().get("polish_command") or []
+    if configured:
+        exe = shutil.which(configured[0])
+        return [exe] + list(configured[1:]) if exe else None
+    for argv in CLI_CANDIDATES:
+        exe = shutil.which(argv[0])
+        if exe:
+            return [exe] + argv[1:]
+    return None
+
+
+def _command(prompt: str, timeout: int) -> str | None:
+    """Polish by piping the prompt into a local CLI assistant.
+
+    The prompt goes on STDIN rather than argv: a dictation can be thousands of
+    characters, and argv has both a length limit and a quoting minefield.
+    """
+    argv = detect_cli()
+    if not argv:
+        log("format: no command-line assistant found (looked for claude, aifx, llm)")
+        return None
+    try:
+        res = subprocess.run(argv, input=prompt, capture_output=True,
+                             text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log(f"format: {argv[0]} failed: {type(e).__name__}: {e}")
+        return None
+    if res.returncode != 0:
+        log(f"format: {argv[0]} rc={res.returncode}: {res.stderr[:200]}")
+        return None
+    return res.stdout.strip() or None
+
+
 def _call_model(prompt: str) -> str | None:
     """Dispatch to whichever polishing backend is configured."""
     s = config.settings()
     timeout = int(s["llm_timeout"])
-    if str(s.get("polish_backend", "local")) == "openai":
+    backend = str(s.get("polish_backend", "local"))
+    if backend == "openai":
         return _openai(str(s.get("openai_model", "gpt-4.1-mini")), prompt, timeout)
+    if backend == "command":
+        return _command(prompt, max(timeout, 60))
     return _ollama(str(s["llm_model"]), prompt, timeout)
 
 
@@ -149,6 +241,9 @@ Output the formatted text and nothing else.{vocab}
 
 Transcript:
 {text}"""
+
+PROMPT_FILE_SAMPLE = '# Withy polishing instructions\n#\n# This file replaces the instructions Withy sends with your dictation. Edit it\n# to suit how you write. Delete the file to go back to the default.\n#\n# Two ways to write it:\n#   - Plain instructions (like below). Withy appends your vocabulary list and\n#     the transcript itself.\n#   - A full template, if you include {text} — and optionally {vocab} — and\n#     want to control the whole thing.\n#\n# The safety check runs regardless of what you write here: any word in the\n# output that you did not say is reverted. You can change the STYLE, not the\n# guarantee.\n\nYou format dictated speech into written text.\n\nReturn the SAME WORDS the speaker said, with formatting applied. You may:\n- add punctuation, capitalisation, paragraph breaks\n- put quotation marks around speech the speaker is quoting or acting out.\n  Quote ONLY the words attributed to someone. Never wrap the whole text in\n  quotation marks\n- turn a spoken enumeration into a numbered or bulleted list\n- break long passages into paragraphs at natural topic changes\n- delete filler words and false starts\n- apply spoken self-corrections: if the speaker retracts something ("no,\n  scratch that", "sorry, I mean"), delete the retracted text and keep the\n  correction, including the words of the retraction itself\n\nYou must NEVER:\n- add a word the speaker did not say\n- replace a word with a different word\n- summarise, shorten, expand or rephrase anything\n- use markdown, bold, italics or asterisks of any kind\n- comment on the text or explain what you did\n\nOutput the formatted text and nothing else.\n'
+
 
 VOCAB_HINT = """
 
@@ -457,17 +552,26 @@ def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict
     if lang and lang != "en":
         return raw, {"applied": False, "reason": f"language {lang}"}
     vocab = VOCAB_HINT.format(terms=", ".join(terms[:200])) if terms else ""
+    template = load_prompt()
 
     # The 40-word ceiling is a property of a 3B local model, not of the task.
     # A hosted model holds the instruction far further, and fewer boundaries
     # means fewer split quotes and better paragraphing.
-    size = int(s.get("chunk_words") or
-               (200 if str(s.get("polish_backend", "local")) == "openai"
-                else CHUNK_WORDS))
+    backend = str(s.get("polish_backend", "local"))
+    # A CLI assistant pays full process startup on every call (measured: ~8-10s
+    # for `claude -p`), so chunking it would multiply the slowest part. Send the
+    # whole dictation in one go.
+    default_size = {"openai": 200, "command": 2000}.get(backend, CHUNK_WORDS)
+    size = int(s.get("chunk_words") or default_size)
 
     pieces, reasons = [], []
     for chunk in _chunks(raw, size):
-        resp = _call_model(PROMPT.format(vocab=vocab, text=chunk))
+        try:
+            filled = template.format(vocab=vocab, text=chunk)
+        except (KeyError, IndexError, ValueError) as e:
+            log(f"format: prompt file has a bad placeholder ({e}) — using the default")
+            filled = PROMPT.format(vocab=vocab, text=chunk)
+        resp = _call_model(filled)
         if resp is None:
             return raw, {"applied": False, "reason": "model unavailable"}
         # Small models like to wrap output in a code fence or preamble.

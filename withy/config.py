@@ -66,6 +66,7 @@ DATA_DIR = _env_path("WITHY_DATA_DIR", f"~/.local/share/{APP}")
 
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 VOCAB_FILE = CONFIG_DIR / "vocabulary.txt"
+PROMPT_FILE = CONFIG_DIR / "prompt.md"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
 AUDIO_DIR = DATA_DIR / "audio"
 
@@ -98,6 +99,9 @@ DEFAULTS: dict = {
     # a hosted model — faster and better, but it is the one thing that leaves.
     "polish_backend": "local",
     "openai_model": "gpt-4.1-mini",
+    # Explicit argv for the "command" backend; empty = auto-detect
+    # (claude, then aifx agent run claude, then llm).
+    "polish_command": [],
     # Override the per-backend default chunk size; 0 = use the default.
     "chunk_words": 0,
     "llm_timeout": 25,   # a stalled model must not hold up typing

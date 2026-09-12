@@ -142,6 +142,38 @@ def cmd_vocab(a) -> int:
     return 0
 
 
+def cmd_prompt(a) -> int:
+    fmt.ensure_prompt_file()
+    if a.action == "path":
+        print(config.PROMPT_FILE)
+    elif a.action == "edit":
+        subprocess.run(["open", "-t", str(config.PROMPT_FILE)])
+    else:
+        print(config.PROMPT_FILE.read_text(encoding="utf-8"))
+    return 0
+
+
+def cmd_set_key(a) -> int:
+    """Store the hosted-backend API key.
+
+    Read from stdin when no argument is given, so the key does not have to
+    appear in a command line. Written 0600, and deliberately NOT into
+    settings.json — that file is rewritten by the menu and printed by
+    `withy settings`.
+    """
+    key = a.key if a.key else sys.stdin.read()
+    key = key.strip()
+    if len(key) < 10:
+        print("that does not look like a key", file=sys.stderr)
+        return 1
+    config.ensure_dirs()
+    f = config.CONFIG_DIR / "openai-key"
+    f.write_text(key, encoding="utf-8")
+    f.chmod(0o600)
+    print(f"saved to {f}")
+    return 0
+
+
 def cmd_mics(a) -> int:
     mics = capture.list_mics()
     if a.json:
@@ -270,6 +302,15 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("action", nargs="?", default="show",
                    choices=["show", "path", "edit"])
     q.set_defaults(fn=cmd_vocab)
+
+    q = sub.add_parser("prompt", help="the polishing instructions")
+    q.add_argument("action", nargs="?", default="show",
+                   choices=["show", "path", "edit"])
+    q.set_defaults(fn=cmd_prompt)
+
+    q = sub.add_parser("set-key", help="store the hosted-backend API key")
+    q.add_argument("key", nargs="?", help="omit to read from stdin")
+    q.set_defaults(fn=cmd_set_key)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")

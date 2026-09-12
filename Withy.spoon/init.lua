@@ -386,10 +386,34 @@ function obj:_buildMenu()
       fn = function()
         saveSetting("postprocess", true); saveSetting("polish_backend", "local")
       end },
-    { title = "Hosted (" .. setting("openai_model", "gpt-4.1-mini") .. ") — leaves this Mac",
+    { title = "Command line assistant (slowest, no key needed)",
+      checked = polishOn and backend == "command",
+      fn = function()
+        saveSetting("postprocess", true); saveSetting("polish_backend", "command")
+      end },
+    { title = "Hosted API (" .. setting("openai_model", "gpt-4.1-mini") .. ") — leaves this Mac",
       checked = polishOn and backend == "openai",
       fn = function()
         saveSetting("postprocess", true); saveSetting("polish_backend", "openai")
+      end },
+    { title = "-" },
+    { title = "Edit polishing instructions…",
+      fn = function()
+        hs.execute("'" .. cliPath() .. "' prompt edit")
+      end },
+    { title = "Set API key…",
+      fn = function()
+        local ok, key = hs.dialog.textPrompt(
+          "Withy — hosted polishing",
+          "Paste an OpenAI API key. It is stored in ~/.config/withy/openai-key, "
+          .. "readable only by you, and never written to settings.json.",
+          "", "Save", "Cancel")
+        if ok == "Save" and key and #key > 10 then
+          -- Piped, not passed as an argument: a key on a command line is
+          -- visible to anything that can read the process table.
+          local f = io.popen("'" .. cliPath() .. "' set-key", "w")
+          if f then f:write(key); f:close() end
+        end
       end },
   } }
   local current = setting("icon", "willow")
