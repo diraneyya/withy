@@ -163,11 +163,14 @@ end
 -- banner — deliberately at a screen EDGE and small, because a large centred one
 -- ends up covering the very field being dictated into.
 local BANNER = { w = 148, h = 30, margin = 10, radius = 8 }
+
+-- One definition of each phase, used by both the menubar mark and the banner,
+-- so the colour you see in the corner of the screen is the colour on the tree.
 local PHASE = {
-  recording    = { text = "Recording",    dot = { red = 0.95, green = 0.25, blue = 0.25, alpha = 1 } },
-  transcribing = { text = "Transcribing", dot = { red = 1.00, green = 0.72, blue = 0.20, alpha = 1 } },
-  formatting   = { text = "Polishing",    dot = { red = 0.45, green = 0.70, blue = 1.00, alpha = 1 } },
-  typing       = { text = "Typing",       dot = { red = 0.40, green = 0.85, blue = 0.45, alpha = 1 } },
+  recording    = { text = "Recording",    dot = { red = 0.95, green = 0.23, blue = 0.19, alpha = 1 } },
+  transcribing = { text = "Transcribing", dot = { red = 1.00, green = 0.74, blue = 0.13, alpha = 1 } },
+  formatting   = { text = "Polishing",    dot = { red = 0.25, green = 0.60, blue = 1.00, alpha = 1 } },
+  typing       = { text = "Typing",       dot = { red = 0.30, green = 0.80, blue = 0.40, alpha = 1 } },
 }
 
 function obj:_banner(phase)
@@ -205,19 +208,24 @@ end
 
 function obj:_setState(state)
   self.state = state
+  if state == "recording" then
+    self:_phase("recording")
+  elseif state == "idle" then
+    self:_phase(nil)
+  end
+end
+
+-- One call sets both the mark and the banner, so they can never disagree.
+function obj:_phase(phase)
   -- Defensive: the menubar icon is decoration, the hotkey is the product. An
   -- icon that fails to load must never stop dictation from working — it did
   -- exactly that once, because a throw here aborted start() before the event
   -- tap was ever created.
   if self.menu then
-    local ok, img = pcall(markFor, state)
+    local ok, img = pcall(markFor, phase)
     if ok and img then self.menu:setIcon(img) else self.menu:setTitle("~") end
   end
-  if state == "recording" then
-    self:_banner("recording")
-  elseif state == "idle" then
-    self:_banner(nil)
-  end
+  self:_banner(phase)
 end
 
 -- While the CLI is working it publishes its phase to a state file; follow it so
@@ -233,7 +241,7 @@ function obj:_followPhases()
     -- Ignore "recording": the state file still holds it from the recorder that
     -- has only just been asked to stop, so honouring it here flips the banner
     -- back and forth between Recording and Transcribing on every key release.
-    if st ~= "recording" and PHASE[st] then self:_banner(st) end
+    if st ~= "recording" and PHASE[st] then self:_phase(st) end
   end)
 end
 
@@ -335,13 +343,6 @@ function obj:_buildMenu()
     checked = setting("postprocess", true),
     fn = function() saveSetting("postprocess", not setting("postprocess", true)) end,
   }
-  local style = setting("icon_style", "solid")
-  items[#items + 1] = { title = "Menu bar icon", menu = {
-    { title = "Willow (solid)", checked = (style == "solid"),
-      fn = function() saveSetting("icon_style", "solid"); imageCache = {}; self:_setState("idle") end },
-    { title = "Willow (outline)", checked = (style == "outline"),
-      fn = function() saveSetting("icon_style", "outline"); imageCache = {}; self:_setState("idle") end },
-  } }
   items[#items + 1] = {
     title = "On-screen banner",
     checked = setting("banner", true),
@@ -409,8 +410,8 @@ function obj:_rebind()
       self.pendingStop = hs.timer.doAfter(0.2, function()
         self.pendingStop = nil
         self.down = false
-        self:_setState("working")
-        self:_banner("transcribing")
+        self.state = "working"
+        self:_phase("transcribing")
         self:_followPhases()
         chirp(SOUND_STOP)
         self:_run({ "stop" }, function(ok)
