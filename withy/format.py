@@ -45,10 +45,19 @@ from .vocab import norm
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 
-# Chunk long transcripts. Every model degrades on long inputs — the same effect
-# that makes speech synthesis drift past ~30 words — and a dictation of 1,000+
-# words is well past where a 3B model holds instructions reliably.
-CHUNK_WORDS = 150
+# Chunk length is the single most important number in this file.
+#
+# Measured on a real dictation containing a spoken self-correction ("...and
+# prose CONTENT context, so graph-shaped context and prose-SHAPED context"):
+#
+#   passage alone, 30 words   -> restatement collapsed, stutter removed
+#   same passage in 117 words -> nothing removed at all
+#
+# The model does not get worse at the task; it gets worse at holding the
+# instruction over distance. This is the same positional degradation that
+# shows up in diacritization and speech synthesis past ~30 words, and the fix
+# is the same: feed it sentence-sized pieces.
+CHUNK_WORDS = 40
 
 # Below this ratio of surviving content words, assume the model truncated
 # rather than applied a self-correction. Enforced strictly only on longer
@@ -252,6 +261,44 @@ def reconcile(raw: str, formatted: str, terms: list[str]) -> tuple[str, int]:
     return text, reverted
 
 
+_ENDS_SENTENCE = re.compile(r"""[.!?]["')\]]*\s*$""")
+
+
+def _match_leading_case(raw_chunk: str, formatted: str) -> str:
+    """Undo the capital the model puts on a chunk that is not a new sentence.
+
+    Each chunk is handed to the model on its own, so it capitalises the first
+    word every time — which is correct for a sentence and wrong for the second
+    half of one. Whether it really starts a sentence is decided by the previous
+    chunk's punctuation, and the evidence for the right casing is the spoken
+    word itself: if Whisper wrote it lower-case, it is not a proper noun.
+    """
+    rw = raw_chunk.split()
+    fw = formatted.split()
+    if not rw or not fw:
+        return formatted
+    first_raw = rw[0].lstrip("\"'([")
+    if first_raw[:1].islower():
+        for i, ch in enumerate(formatted):
+            if ch.isalpha():
+                return formatted[:i] + ch.lower() + formatted[i + 1:]
+    return formatted
+
+
+_SENTENCE_START = re.compile(r"""([.!?]["')\]]*[ \t]+|\n+)([a-z])""")
+
+
+def capitalise_sentences(text: str) -> str:
+    """Capitalise after every sentence ending.
+
+    Speech contains no capital letters at all, so this cannot be left to the
+    model: it capitalises reliably in some places and not others, and the misses
+    are glaring ("...prose-shaped context. and for that..."). Requiring
+    whitespace after the punctuation keeps decimals ("3.5 metres") intact.
+    """
+    return _SENTENCE_START.sub(lambda m: m.group(1) + m.group(2).upper(), text)
+
+
 def capitalise_first(text: str) -> str:
     """Upper-case the first letter. Speech has no capital letters, so this must
     never depend on the model remembering to do it."""
@@ -290,20 +337,54 @@ def formatting_sane(raw: str, formatted: str) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _split_long(sentence: str, size: int) -> list[str]:
+    """Break a sentence that is longer than `size` words.
+
+    Dictated speech is full of sentences far longer than any written one — a
+    single unpunctuated run of 60+ words is normal when someone is thinking out
+    loud. Splitting only on sentence boundaries therefore cannot get below the
+    length at which the model stops following instructions. Prefer commas and
+    other natural pauses; hard-split on word count only as a last resort.
+    """
+    words = sentence.split()
+    if len(words) <= size:
+        return [sentence]
+    parts, cur = [], []
+    for piece in re.split(r"(?<=[,;:])\s+", sentence):
+        pw = len(piece.split())
+        if cur and sum(len(c.split()) for c in cur) + pw > size:
+            parts.append(" ".join(cur))
+            cur = []
+        cur.append(piece)
+    if cur:
+        parts.append(" ".join(cur))
+    out = []
+    for part in parts:
+        w = part.split()
+        if len(w) <= size * 1.5:
+            out.append(part)
+        else:            # no punctuation to lean on at all
+            for i in range(0, len(w), size):
+                out.append(" ".join(w[i:i + size]))
+    return out
+
+
 def _chunks(text: str, size: int = CHUNK_WORDS) -> list[str]:
-    """Split on sentence boundaries, accumulating up to ~`size` words."""
-    sents = re.split(r"(?<=[.!?])\s+", text.strip())
+    """Sentence-sized pieces, never much longer than `size` words."""
+    pieces: list[str] = []
+    for sent in re.split(r"(?<=[.!?])\s+", text.strip()):
+        pieces.extend(_split_long(sent, size))
     out, cur, n = [], [], 0
-    for s in sents:
-        w = len(s.split())
+    for piece in pieces:
+        w = len(piece.split())
         if cur and n + w > size:
             out.append(" ".join(cur))
             cur, n = [], 0
-        cur.append(s)
+        cur.append(piece)
         n += w
     if cur:
         out.append(" ".join(cur))
-    return out or [text]
+    return [c for c in out if c.strip()] or [text]
 
 
 def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict]:
@@ -344,11 +425,25 @@ def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict
             reasons.append(why_insane)
             pieces.append(chunk)
             continue
+        # A chunk boundary is an artefact of how the text was fed to the
+        # model, not a structural break in what was said — so it must not
+        # become a paragraph break or a capital letter mid-sentence.
+        # Casing at a chunk join is decided by the PREVIOUS chunk's
+        # punctuation, in both directions: after a full stop the next piece
+        # starts a sentence and must be capitalised; mid-sentence it must not
+        # be, however the model chose to render it in isolation.
+        if pieces:
+            if _ENDS_SENTENCE.search(pieces[-1]):
+                merged = capitalise_first(merged)
+            else:
+                merged = _match_leading_case(chunk, merged)
         if reverted:
             log(f"format: reverted {reverted} substitution(s), kept formatting")
         pieces.append(merged)
 
-    final = capitalise_first("\n\n".join(pieces) if len(pieces) > 1 else pieces[0])
+    # Joined with a space, not a blank line: paragraph breaks are the model's
+    # to make INSIDE a chunk, where it can see the meaning.
+    final = capitalise_sentences(capitalise_first(" ".join(pieces).strip()))
     applied = not reasons or len(reasons) < len(pieces)
     return final, {"applied": applied, "model": model,
                    "chunks": len(pieces), "rejected": reasons}
