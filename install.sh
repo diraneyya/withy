@@ -8,10 +8,18 @@
 #   ./install.sh                 install dictation (no on-device model)
 #   ./install.sh --with-llm      also install Ollama for on-device polishing
 #   ./install.sh --model base.en use a smaller, faster Whisper model
+#   ./install.sh --polish-command "aifx agent run claude -p"
+#                                configure polishing to use a local CLI agent
+#   ./install.sh --polish-backend off|local|command|openai|anthropic
 #
 set -euo pipefail
 
 MODEL_NAME="large-v3-turbo"
+# An assistant running this installer can work out which command-line agents
+# exist on THIS machine and what the user prefers, then pass the answer in — so
+# the user never has to discover or type it. See LLM.md.
+POLISH_COMMAND=""
+POLISH_BACKEND=""
 # On-device polishing is OPTIONAL and adds a ~2GB download plus a background
 # runner. It can be added or removed later from the menu, so the installer does
 # not assume it — see --with-llm.
@@ -22,6 +30,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-llm) WITH_LLM=0; shift ;;
     --with-llm) WITH_LLM=1; shift ;;
+    --polish-command) POLISH_COMMAND="$2"; shift 2 ;;
+    --polish-backend) POLISH_BACKEND="$2"; shift 2 ;;
     --model)  MODEL_NAME="$2"; shift 2 ;;
     --llm-model) LLM_MODEL="$2"; shift 2 ;;
     -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
@@ -115,6 +125,25 @@ cp -R "$SRC/Withy.spoon" "$SPOONS/Withy.spoon"
 "$BIN" settings "cli_path=$BIN" "whisper_model=$MODEL_PATH" \
                 "llm_model=$LLM_MODEL" "postprocess=$WITH_LLM" >/dev/null
 "$BIN" vocab path >/dev/null    # creates the vocabulary file on first run
+
+# Polishing choice, if one was passed in.
+if [[ -n "$POLISH_COMMAND" ]]; then
+  say "Configuring polishing to use: $POLISH_COMMAND"
+  "$BIN" set-command "$POLISH_COMMAND" || true
+  "$BIN" settings polish_backend=command postprocess=true >/dev/null
+  # Verify rather than assume: a wrong command fails silently and safely, and
+  # the user would never learn why polishing does nothing.
+  if ! "$BIN" test-command; then
+    warn "that command did not pass its check — polishing will do nothing until it is fixed"
+  fi
+elif [[ -n "$POLISH_BACKEND" ]]; then
+  if [[ "$POLISH_BACKEND" == "off" ]]; then
+    "$BIN" settings postprocess=false >/dev/null
+  else
+    "$BIN" settings "polish_backend=$POLISH_BACKEND" postprocess=true >/dev/null
+  fi
+  say "Polishing backend: $POLISH_BACKEND"
+fi
 
 # ── hammerspoon wiring ───────────────────────────────────────────────────
 # Append, never overwrite: the user may already run other Hammerspoon tools,

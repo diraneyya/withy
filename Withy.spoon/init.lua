@@ -430,13 +430,13 @@ function obj:_buildMenu()
       -- it is lying to them.
       local why, action
       if not localInfo.runner_installed then
-        why, action = "not installed", "Install local model…"
+        why, action = "not installed", "Install a local LLM model…"
       elseif not localInfo.runner_running then
-        why, action = "runner not running", "Start the local model runner"
+        why, action = "runner not running", "Start the local LLM runner"
       else
-        why, action = "no model downloaded", "Download a local model…"
+        why, action = "no model downloaded", "Download a local LLM model…"
       end
-      return { title = "Local model — " .. why, menu = {
+      return { title = "Local LLM model — " .. why, menu = {
         { title = action,
           fn = function()
             local cmd = hs.execute("'" .. cliPath() .. "' install-cmd local")
@@ -453,12 +453,12 @@ function obj:_buildMenu()
         end }
     end
     sub[#sub + 1] = { title = "-" }
-    sub[#sub + 1] = { title = "Remove local model…",
+    sub[#sub + 1] = { title = "Remove the local LLM model…",
       fn = function()
         local cmd = hs.execute("'" .. cliPath() .. "' install-cmd remove-local")
         runVisibly((cmd or ""):gsub("%s+$", ""))
       end }
-    return { title = "Local model (" .. tostring(localInfo.selected) .. ")",
+    return { title = "Local LLM model (" .. tostring(localInfo.selected) .. ")",
              checked = polishOn and backend == "local", menu = sub }
   end
 

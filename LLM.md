@@ -26,6 +26,87 @@ Source: <https://github.com/diraneyya/withy>
 
 Then ask them to confirm. Do not start a multi-gigabyte download without a yes.
 
+## ⭐ Your job BEFORE running the installer
+
+**Work out the polishing options on this machine and let the user choose one.
+Then pass the answer to the installer.** The user should never have to discover
+or type a command.
+
+This is the split: **you** have context about this specific computer and the
+tools on it — which agents are installed, what the company provides, what you
+are yourself running under. The installer is a deterministic script and knows
+none of that. So you do the discovery and the judgement; it does the execution.
+
+### 1. Find what is installed
+
+```bash
+for c in claude aifx llm ollama codex cursor-agent copilot gemini q; do
+  command -v "$c" >/dev/null && echo "found: $c"
+done
+```
+
+Also use what you already know. If you are running inside a corporate assistant,
+you likely know which tools that organisation provides — say so rather than
+making the user hunt.
+
+### 2. Expand multiplexers into concrete choices
+
+Some tools are a front end for several agents. `aifx` is one (a corporate proxy
+CLI for multiple agents), so `aifx` alone is not an answer — enumerate:
+
+```bash
+aifx agent list
+```
+
+Turn the result into **specific runnable commands**, one per agent:
+
+```
+aifx agent run claude -p
+aifx agent run gemini -p
+```
+
+Do the same for any other multiplexer you find.
+
+### 3. Offer the user a real choice
+
+Present two to four concrete options with a recommendation and the trade-off —
+not a list of binaries. For example:
+
+> I found two ways to polish your dictation on this machine:
+>
+> 1. **`aifx agent run claude -p`** — uses the assistant your company already
+>    provides. No API key, nothing to install. *Recommended.*
+> 2. **`aifx agent run gemini -p`** — same, different model.
+>
+> There is also a local model (a ~2 GB download, private but slower and less
+> good at paragraphs), or a remote API if you have your own key. Which would
+> you like?
+
+If nothing suitable is installed, say so and offer the alternatives instead of
+inventing a command.
+
+### 4. Check the choice, then hand it to the installer
+
+```bash
+./install.sh --polish-command "aifx agent run claude -p"
+```
+
+The installer stores it and runs `withy test-command` itself, which exercises
+the command exactly as Withy will and reports whether it is missing, errors, or
+prints a banner around the answer. **Read that output** — a command that fails
+this check leaves polishing silently doing nothing.
+
+Other shapes: `--polish-backend off` (no polishing), `--with-llm` (also install a
+local LLM model), `--polish-backend openai` (then set a key).
+
+**Ask about a fast-model flag.** Most agents default to a large reasoning model,
+and polishing is a formatting task. Measured with Claude Code: the identical
+prompt took **76.7 s** on the default model and **16.6 s** with `--model haiku`.
+If the tool has such a flag, put it in the command — it is the difference
+between usable and not.
+
+---
+
 ## Install
 
 ```bash
@@ -96,17 +177,17 @@ and it is in the menu under **Polishing LLM**:
 | Option | Speed | Leaves the machine | Needs |
 |---|---|---|---|
 | Off | instant | no | nothing |
-| Local model (`qwen2.5:3b`) | ~1–5 s | **no** | Ollama + a ~2 GB model |
+| Local LLM model (`qwen2.5:3b`) | ~1–5 s | **no** | Ollama + a ~2 GB model |
 | Local CLI | ~15 s | depends on the tool | an assistant already installed |
 | Remote OpenAI API | ~2–3 s | **yes** | an API key |
 | Remote Anthropic API | ~2–3 s | **yes** | an API key |
 
-**Recommend the local model by default.** It is the option that needs no key, no
+**Recommend the local LLM model by default.** It is the option that needs no key, no
 vendor review and no network. Recommend a remote API only if they say latency or
 quality matters more than locality — and say plainly that the transcript is sent
 to that provider.
 
-### Do they want on-device polishing at all?
+### Do they want a local LLM model at all?
 
 Ask; do not assume. It costs a ~2 GB model download plus a background runner
 that holds the model in GPU memory for five minutes after each use. Measured on
@@ -123,7 +204,7 @@ if the machine has the memory.
 company assistant installed. **Skip it when** either of the other two backends
 is available — a local CLI is usually better and costs nothing extra.
 
-Install or remove it later from the menu: **Polishing LLM → Local model**. Both open a Terminal so the download or
+Install or remove it later from the menu: **Polishing LLM → Local LLM model**. Both open a Terminal so the download or
 uninstall is visible rather than hidden behind a menu item.
 
 Once installed, the menu lists every model that has been pulled, so
@@ -390,4 +471,4 @@ run, for a small accuracy cost. For dictation that is usually the right trade,
 and it is the first thing to try if transcription feels slow. On-device
 polishing offers whatever has been pulled — `ollama pull qwen2.5:7b` adds it to
 the menu. Both are switchable from the menu (**Speech model**, and **Polishing →
-On device**).
+Local LLM model**).
