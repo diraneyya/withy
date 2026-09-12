@@ -104,7 +104,7 @@ DEFAULTS: dict = {
     # Front-end preferences, written by the Hammerspoon menu; listed here so
     # `withy settings` can read and set them too.
     "banner": True,
-    "icon_style": "solid",
+    "icon": "willow",
     # Absolute path to the launcher. Written by install.sh and read by the
     # Hammerspoon front end, which is spawned with a minimal environment and
     # therefore cannot rely on PATH.

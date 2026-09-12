@@ -118,44 +118,6 @@ local GLYPH = 22
 -- afterwards — so a lazily-rendered icon could not find its own artwork.
 local SPOON_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)")) or ""
 
-local imageCache = {}
-
-local function markImage(style, state)
-  local key = style .. ":" .. state
-  if imageCache[key] then return imageCache[key] end
-
-  local file = (style == "outline") and "willow-outline.png" or "willow.png"
-  local base = hs.image.imageFromPath(SPOON_DIR .. file)
-  if not base then return nil end
-
-  local ink = { white = 0, alpha = 1 }
-  local c = hs.canvas.new({ x = 0, y = 0, w = GLYPH, h = GLYPH })
-  -- The artwork is taller than it is wide; fit by height and centre it.
-  -- hs.image:size() returns { w = , h = } — NOT width/height.
-  local size = base:size()
-  local h = GLYPH
-  local w = size.w / size.h * h
-  c:appendElements({ type = "image", image = base,
-                     imageScaling = "scaleProportionally",
-                     frame = { x = (GLYPH - w) / 2, y = 0, w = w, h = h } })
-  if state == "recording" then
-    c:appendElements({ type = "circle", center = { x = GLYPH - 4, y = GLYPH - 4 },
-                       radius = 3.2, action = "fill", fillColor = ink })
-  elseif state == "working" then
-    c:appendElements({ type = "circle", center = { x = GLYPH - 4, y = GLYPH - 4 },
-                       radius = 3.0, action = "stroke", strokeWidth = 1.4,
-                       strokeColor = ink })
-  end
-  local img = c:imageFromCanvas()
-  c:delete()
-  img:template(true)
-  imageCache[key] = img
-  return img
-end
-
-local function markFor(state)
-  return markImage(setting("icon_style", "solid"), state or "idle")
-end
 
 -- ── indicator ────────────────────────────────────────────────────────────
 -- A menubar glyph alone is not enough feedback: while dictating you are looking
@@ -172,6 +134,78 @@ local PHASE = {
   formatting   = { text = "Polishing",    dot = { red = 0.25, green = 0.60, blue = 1.00, alpha = 1 } },
   typing       = { text = "Typing",       dot = { red = 0.30, green = 0.80, blue = 0.40, alpha = 1 } },
 }
+
+local imageCache = {}
+
+-- Every PNG in icons/ is an option. The folder is scanned rather than the names
+-- hard-coded, so adding artwork means dropping a file in, not editing Lua.
+local function iconNames()
+  local names = {}
+  for f in hs.fs.dir(SPOON_DIR .. "icons/") do
+    local n = f:match("^(.+)%.png$")
+    if n then names[#names + 1] = n end
+  end
+  table.sort(names)
+  return names
+end
+
+-- A macOS TEMPLATE image is a single-colour mask: the system recolours the whole
+-- thing for light and dark menu bars and inverts it when a menu is open. That is
+-- ideal for a plain icon and it is exactly what throws a coloured dot away.
+--
+-- So idle stays a template and behaves natively; the moment there is a phase to
+-- show, the mark is drawn in real colour instead. The artwork is a black PNG, so
+-- once it stops being a template it would vanish on a dark menu bar — it is
+-- re-inked by compositing a fill with "sourceAtop", which paints only where the
+-- image is already opaque.
+local function markImage(icon, phase, dark)
+  local key = icon .. ":" .. tostring(phase) .. ":" .. tostring(dark)
+  if imageCache[key] then return imageCache[key] end
+
+  local base = hs.image.imageFromPath(SPOON_DIR .. "icons/" .. icon .. ".png")
+  if not base then return nil end
+
+  local spec = PHASE[phase]
+  local ink = dark and { white = 1, alpha = 0.92 } or { white = 0, alpha = 0.85 }
+
+  local c = hs.canvas.new({ x = 0, y = 0, w = GLYPH, h = GLYPH })
+  -- hs.image:size() returns { w = , h = } — NOT width/height.
+  local size = base:size()
+  local w = size.w / size.h * GLYPH
+  c:appendElements({ type = "image", image = base,
+                     imageScaling = "scaleProportionally",
+                     frame = { x = (GLYPH - w) / 2, y = 0, w = w, h = GLYPH } })
+
+  if spec then
+    c:appendElements({ type = "rectangle", action = "fill", fillColor = ink,
+                       compositeRule = "sourceAtop" })
+    c:appendElements({ type = "circle",
+                       center = { x = GLYPH - 4.5, y = GLYPH - 4.5 },
+                       radius = 4.0, action = "strokeAndFill",
+                       fillColor = spec.dot, strokeWidth = 0.8,
+                       strokeColor = dark and { white = 0, alpha = 0.6 }
+                                          or { white = 1, alpha = 0.85 } })
+  end
+
+  local img = c:imageFromCanvas()
+  c:delete()
+  img:template(spec == nil)   -- template only when there is no colour to keep
+  imageCache[key] = img
+  return img
+end
+
+local function markFor(phase)
+  return markImage(setting("icon", "willow"), phase,
+                   hs.host.interfaceStyle() == "Dark")
+end
+
+-- Testing hook. The mark is built from several things that can each fail
+-- silently — a missing file, a phase table out of scope, a template flag that
+-- discards colour — and the only honest way to check it is to render what the
+-- REAL function returns, not a copy of its logic in a scratch file.
+function obj.debugMark(phase, icon, dark)
+  return markImage(icon or setting("icon", "willow"), phase, dark or false)
+end
 
 function obj:_banner(phase)
   if not setting("banner", true) then return end
@@ -343,6 +377,24 @@ function obj:_buildMenu()
     checked = setting("postprocess", true),
     fn = function() saveSetting("postprocess", not setting("postprocess", true)) end,
   }
+  local current = setting("icon", "willow")
+  local iconMenu = {}
+  for _, n in ipairs(iconNames()) do
+    iconMenu[#iconMenu + 1] = {
+      title = n,
+      checked = (n == current),
+      -- Show the artwork beside its name so the menu is the chooser, not a
+      -- list of filenames you have to try one at a time.
+      image = hs.image.imageFromPath(SPOON_DIR .. "icons/" .. n .. ".png"),
+      fn = function()
+        saveSetting("icon", n)
+        imageCache = {}
+        self:_phase(nil)
+      end,
+    }
+  end
+  items[#items + 1] = { title = "Menu bar icon", menu = iconMenu }
+
   items[#items + 1] = {
     title = "On-screen banner",
     checked = setting("banner", true),
