@@ -4,7 +4,6 @@
 
 <h1 align="center">Withy</h1>
 
-
 <p align="center">
   <strong>Push-to-talk dictation for macOS that runs entirely on your machine.</strong><br>
   Hold a key, speak, let go — the text is typed into whatever app has focus.<br>
@@ -12,29 +11,10 @@
   and there is no per-seat licence.
 </p>
 
----
-
-## The name
-
-A **withy** is a willow branch cut for weaving.
-
-This was written in a garden, in front of a heap of willow branches a neighbour
-had cut down the day before. The tree is gone now — the one whose long strands
-you could lie under on summer nights by a fire and watch moving against the
-sky. What is left is a pile of cut branches and the question of what to do with
-them.
-
-The traditional answer is that you weave them. Withies become baskets, fences,
-screens; the tree goes on being useful in another shape. That seemed like a
-fair description of a tool that takes speech — which is loose, disordered, and
-disappears the moment it is made — and weaves it into something that holds.
-
 <p align="center">
-  <img src="docs/willows.jpg" alt="Weeping willows along a river" width="380">
+  <em>withy</em> &nbsp;/ˈwɪði/&nbsp; — rhymes with <em>smithy</em><br>
+  <sub>a willow branch cut for weaving</sub>
 </p>
-
-It is also, plainly, a free local alternative to the cloud dictation tools
-people pay per seat for. But it is named after the tree, not after them.
 
 ---
 
@@ -46,229 +26,223 @@ cd withy
 ./install.sh
 ```
 
-Then grant **Hammerspoon** *Accessibility* and *Input Monitoring* in
-System Settings → Privacy & Security, hold **right Option**, and speak.
+Then grant **Hammerspoon** *Accessibility* and *Input Monitoring* in System
+Settings → Privacy & Security, hold **right Option**, and speak.
 
-Or hand the whole job to a coding agent — paste this at it:
+Or hand the whole job to a coding assistant — paste this at it:
 
 > Install Withy on my Mac by following
 > https://raw.githubusercontent.com/diraneyya/withy/master/LLM.md
 
-Requires macOS with [Homebrew](https://brew.sh). About 4 GB of models. No Python
-environment to manage — it runs on the Python that ships with macOS and has no
-third-party Python dependencies at all.
+That path is worth preferring: the assistant can see which tools already exist
+on your machine, offer you a real choice of them, and configure the installer
+for you, so you never have to discover or type a command.
 
----
-
-## Why this exists
-
-|  | Cloud dictation (Willow, Wispr Flow, …) | Withy |
-|---|---|---|
-| Per-seat cost | ~$10–15/user/month | none |
-| Audio leaves the device | every utterance | never |
-| Works offline / on a plane | no | yes |
-| Custom vocabulary | vendor dictionary UI | a text file you own |
-| Procurement, DPA, security review | required | not required |
-
-The privacy column is usually what actually unblocks the decision. A dictation
-tool sees *everything a person writes* — code, incident notes, customer names,
-unreleased plans. Running the model locally removes that conversation entirely.
-
-The underlying technology is free and MIT-licensed (whisper.cpp, the Whisper
-weights). What no vendor has an incentive to do is assemble it and give it away.
-That is all this is.
+Requires macOS with [Homebrew](https://brew.sh). No Python environment to
+manage — it runs on the Python that ships with macOS and has no third-party
+Python dependencies at all.
 
 ---
 
 ## Using it
 
-**Hold the record key, speak, release.** That is the whole interface.
+**Hold the record key, speak, release.** That is the whole interface. The
+willow in your menu bar turns red while recording, amber while transcribing and
+blue while it tidies the text, and a small banner in the corner of the screen
+says the same thing so you never have to look up.
 
-The **🎙 menubar icon** holds everything else:
-
-- **Recent dictations** — click one to copy it. Each has *Type again*,
-  *Copy unformatted*, and *Redo from audio* for when a transcription came out
-  wrong. Nothing you dictate is ever lost, even if the typing lands in the wrong
-  window.
-- **Record key** — fn, right ⌥, right ⌘, right ⇧, right ⌃, left ⌥.
-- **Clean up wording** — the formatting pass, on or off.
-- **Edit vocabulary…** — opens your word list.
-
-### The record key, and why the default is not `fn`
-
-`fn` (globe) is the best key to hold: bottom-left, findable by feel, no chord.
-It is also the key macOS binds to Apple Dictation, and the one Willow Voice and
-Wispr Flow take. So Withy defaults to **right Option** and lets you move it.
-
-That is deliberate: install Withy on a different key from whatever you use
-today, and compare them on the same sentences before you commit. To switch to
-`fn` later, turn off the incumbent, set System Settings → Keyboard →
-*Press 🌐 to: Do Nothing*, and pick `fn (globe)` from the menu.
-
-### The vocabulary file
-
-`~/.config/withy/vocabulary.txt` — one flat list of the words a speech
-model gets wrong. Project names, products, acronyms, colleagues' names.
-
-```
-# separated by spaces or newlines, # starts a comment
-Kubernetes PagerDuty Grafana
-OrwaTech Kleinanzeigen
-```
-
-It does three jobs: biases the speech model toward those spellings, fixes
-spacing garbles deterministically (`pager duty` → `PagerDuty`), and — the
-interesting one — **licenses the clean-up model to repair a garbled attempt at
-one of your terms**. Measured, on a real dictation:
-
-```
-heard:              "we use Homebro ... install Hammerspoon and Olama"
-no vocabulary:      unchanged      (the fix is proposed, then refused)
-with vocabulary:    "we use Homebrew ... install Hammerspoon and Ollama"
-```
-
-**Keep it short — tens of terms, not thousands.** See below for why.
-
----
-
-## How the text gets cleaned up
-
-Speech has no punctuation, no paragraphs, and no quotation marks. Filling those
-in is not a rules problem, so Withy runs the transcript through a small
-local language model (via Ollama) that may **only reformat**:
-
-```
-spoken     let's meet on Monday no scratch that let's meet on Tuesday at three
-typed      Let's meet on Tuesday at three.
-
-spoken     ...like a child going to mama saying oh mama I hate it this is so stupid
-typed      ...like a child going to mama saying, "Oh mama, I hate it. This is so
-           stupid."
-```
-
-A small model given an open brief will rewrite meaning. The defence is not a
-better prompt. The model's output is **aligned against what you actually said**
-and taken word by word:
+Everything else lives in that menu:
 
 | | |
 |---|---|
-| words that match | the model's version — this is where the punctuation, casing and quotes come from |
-| words it deleted | allowed; removing filler and retracted text is the point |
-| words it inserted | refused, unless they are vocabulary terms or list markers |
-| words it swapped | reverted to what you said, unless every token is a vocabulary term |
+| **Recent dictations** | click to copy; *Type again*, *Copy unformatted*, *Redo from audio* |
+| **Record key** | fn, right ⌥, right ⌘, right ⇧, right ⌃, left ⌥ |
+| **Polishing LLM** | off, a local model, a local CLI, or a remote API |
+| **Speech model** | whichever you have; eight more downloadable from the menu |
+| **Edit vocabulary** | words a speech model would otherwise get wrong |
+| **Edit polishing instructions** | how it should write |
 
-**No word can be replaced by one you never said** — and unlike an
-accept-or-reject gate, one bad word no longer costs you the formatting of the
-whole paragraph. (It did, before this was measured: the model corrected "y'all"
-to "your", and that single word discarded the capitalisation and quotation
-marks for an entire dictation.)
+### The record key
 
-Two further checks sit on top, because word-level safety is not the only way
-this can go wrong:
+The default is **right Option, not fn**. `fn` is the nicer key to hold, and it
+is also the one macOS binds to Apple Dictation and the one most commercial
+dictation tools take — so Withy stays out of its way by default.
 
-- **Degenerate formatting is rejected.** A small model that loses the thread
-  emits one comma per word — `ones, maybe, some, other, issue, will, happen,` —
-  which passes a word check perfectly, since every word *was* spoken. Comma and
-  line density are checked against what prose actually looks like.
-- **Capitalising the first letter is deterministic**, never the model's job, so
-  it happens even when a chunk is discarded.
-
-Turn the whole stage off from the menubar if you would rather have the raw
-words.
+That is deliberate: install Withy on a different key from whatever you use
+today and compare them on the same sentences before committing. To move to `fn`
+later, turn off the incumbent, set System Settings → Keyboard → *Press 🌐 to: Do
+Nothing*, and pick it from the menu.
 
 ---
 
-## Silence
+## What it does that other dictation tools don't
 
-Whisper hallucinates on silence. Fed a second of room tone it returns a
-confident **"Thank you."** — and a dictation tool that types "Thank you." when
-you said nothing is worse than one that does nothing.
+**Keep talking while it catches up.** Release the key and immediately press it
+again — the previous take transcribes and polishes while you record the next
+one. Dictating is not gated on the machine finishing.
 
-The obvious fix is a loudness threshold, and it is the wrong one: a level tuned
-for a quiet room rejects real speech in a garden and passes a fan in an office.
-The noise floor is not a constant, so it cannot be in the test.
+**Re-run a dictation without saying it again.** The audio is kept, so *Redo from
+audio* runs the whole pipeline again on the same recording. Change the speech
+model, or the polishing backend, or the instructions, and redo it — that is a
+controlled comparison on identical audio, which is the only honest way to tell
+whether a setting is actually better. Nothing that discards your audio can do
+this.
 
-What separates speech from noise regardless of the floor is that **speech is
-amplitude-modulated at the syllable rate** — loud bursts with real gaps between
-them — while a fan, traffic and room tone hold a near-constant level. So Withy
-measures the *spread* between loud and quiet frames, which is a ratio and
-therefore floor-independent. Measured on real dictations:
+**Write the polishing instructions yourself.** The prompt is a file you edit
+(menu → *Edit polishing instructions…*). Want no em-dashes, British spelling,
+bullets instead of prose, a house style? Say so, in your own words.
 
-```
-real speech (13 takes)        spread 16.2 - 35.9 dB
-"Thank you." on silence (2)   spread 10.3 and 10.5 dB
-```
+**Your words stay your words.** Whatever model tidies the text, its output is
+checked against what you actually said: it may add punctuation, paragraphs,
+quotes and lists, and drop filler and retracted phrases — but a word you did not
+say cannot survive into the result. The formatting is negotiable; the content is
+not.
 
-The threshold sits at 13 dB, and deliberately errs toward transcribing — typing
-nothing when you spoke is the worse failure. Every measurement is logged so it
-can be retuned against data rather than re-guessed.
-
----
-
-## What was measured, and what got deleted
-
-This started as the dictation half of a personal tool that had run daily since
-May 2026. Before packaging it, every correction rule was measured against **360
-real dictations**. Two of them were doing more harm than good and were removed:
-
-**Phonetic proper-noun correction** — "swap an out-of-vocabulary word for the
-corpus term with the same phonetic key". It fired 24 times and **damaged the
-text 15 of those times**:
-
-| spoken | typed | |
-|---|---|---|
-| gonna | Kuhn | ×3 |
-| died | T8DE84EW | ×3 |
-| cues | Gaza | |
-| badass | Bytes | ×2 |
-
-`metaphone("badass")` and `metaphone("Bytes")` are both `BTS`. Against a
-3,000-term auto-derived index, almost any spoken word collides with something.
-This is why the vocabulary file is short, hand-written, and yours: a list of
-tens of terms has a collision surface small enough to be safe.
-
-**Hedge removal** — deleting "sort of" and "kind of" as filler. Of 20 firings
-sampled, *every one* was legitimate: "what **kind of** proof is needed", "the
-**sort of** thing that deserves publishing". Those phrases almost always
-introduce a noun of type, not a hedge.
-
-Both now belong to the language model, which has the surrounding sentence and
-can tell `a node` from `Anode`.
-
-The general lesson, which is in `docs/` in more detail: **for a corrector,
-precision beats recall.** A missed fix is visible and costs one keystroke. A
-wrong fix is silent and ships.
+**Nothing is lost.** Every dictation is written to history *before* Withy tries
+to type it, so a wrong window, a lost keystroke or a crash costs you a click,
+not a paragraph.
 
 ---
 
-## Layout
+## Unopinionated by design
 
-| Path | What it is |
+Withy tries not to decide things for you, and to say plainly what each choice
+costs.
+
+### Polishing
+
+Speech has no punctuation, paragraphs or quotation marks. Filling those in —
+and applying spoken self-corrections like *"no, scratch that"* — is the one
+place Withy uses a language model, and you choose which, or none:
+
+| | Speed | Leaves your Mac | Needs |
+|---|---|---|---|
+| **Off** | instant | no | nothing |
+| **Local LLM model** | seconds | **no** | Ollama and a model (~2 GB) |
+| **Local CLI** | slower | depends on the tool | an assistant you already have |
+| **Remote OpenAI API** | fast | **yes** | your API key |
+| **Remote Anthropic API** | fast | **yes** | your API key |
+
+The *local CLI* option exists because a work machine often already provides a
+licensed assistant, so polishing can use it and nobody has to hand out an API
+key. Any command that takes a prompt on standard input and prints the answer
+works; Withy checks the one you give it and tells you if it is wrong, rather
+than quietly doing nothing.
+
+The menu says *"leaves this Mac"* on the remote options, because that is the one
+thing worth knowing before you pick one.
+
+### Models
+
+Both model choices are yours, and both are discovered rather than assumed.
+**Speech models** are found on disk — anything you drop into the whisper-cpp
+folder is offered — and eight common ones can be downloaded from the menu, from
+a 74 MB English-only model up to the most accurate one. The `-q5_0` entries are
+the same weights quantised: roughly a third of the size and correspondingly
+faster, for a small accuracy cost.
+
+The **local LLM model** is optional. The installer does not download one unless
+asked, and it can be added or removed from the menu afterwards. If you have not
+installed it, the menu says so and offers to — it never appears as a choice that
+silently does nothing.
+
+### Your vocabulary
+
+`~/.config/withy/vocabulary.txt` — project names, products, acronyms,
+colleagues' names. Space- or newline-separated.
+
+Keep it to proper nouns, and keep it short. A long list does more harm than
+good: the more entries there are, the more likely an ordinary word you said
+collides with one of them. A short list also does something useful beyond
+spelling — it is what allows the polishing model to repair a garbled attempt at
+one of your terms, and to refuse when the word is not yours to correct.
+
+---
+
+## When something goes wrong
+
+**The text went into the wrong window.** It is not lost. Menu → *Recent
+dictations* → click to copy, or *Type again* to type it wherever your cursor is
+now. This is the most common problem, because transcription takes a moment and
+focus can move in that moment.
+
+**Nothing was typed at all.** Either no speech was detected — Withy stays silent
+rather than typing something you did not say — or typing failed, in which case
+the text is in history and `/tmp/withy.log` says why.
+
+**The transcription was wrong.** *Redo from audio* re-runs it. If a particular
+word is always wrong, add it to your vocabulary. If it is wrong in a way a
+better model would fix, change the speech model and redo the same audio to
+check.
+
+**The first word or two got clipped.** The microphone takes a moment to open.
+The chime is the cue — speak after it, not as you press. `withy diagnose --mic`
+measures the gap on your machine.
+
+**The punctuation is missing.** The polishing model's output is discarded when
+it fails a safety check, and the plain transcript typed instead; the log gives
+the reason. Or polishing may simply be off, or pointed at a backend that is not
+working — the menu shows which.
+
+**Nothing happens when you press the key.** Usually Hammerspoon is missing
+*Input Monitoring*. Grant it, then menu → *Reload*. `withy diagnose` checks the
+rest of the install.
+
+**Pressing the key again cancelled my recording.** That is deliberate — a new
+press discards a take still in progress, so you can cancel and re-speak without
+a second key. A take you already *finished* is safe, and is in history.
+
+---
+
+## Under the hood
+
+| Path | |
 |---|---|
-| `withy/` | the pipeline — capture, transcribe, correct, format, inject, history |
-| `Withy.spoon/` | the Hammerspoon front end: record key, menubar, watchdog |
-| `install.sh` | installer, idempotent, appends to an existing Hammerspoon config |
-| `LLM.md` | the same install as instructions for a coding agent |
-| `eval/` | measures the clean-up stage against a corpus of real dictations |
-| `docs/` | the design rationale, and **every failure mode already paid for** |
+| `withy/` | the pipeline — capture, transcribe, correct, polish, inject, history |
+| `Withy.spoon/` | the Hammerspoon front end: record key, menu bar, banner |
+| `install.sh` | installer; idempotent, appends to an existing Hammerspoon config |
+| `LLM.md` | install and support instructions written for a coding assistant |
+| `docs/` | design notes, and every failure mode already paid for |
 
-`docs/05-gotchas.md` is the one worth reading before you change anything:
-zero-byte WAVs with exit code 0, hotkeys that silently stop working, long
-dictations arriving truncated, destroyed clipboards.
-
-### Command line
-
-Withy is a menubar app and you never need this, but it exists — the Spoon
-drives it, and it makes every stage testable without a microphone:
+There is a command line — the menu bar drives it and you never need it, but it
+makes every stage testable without a microphone:
 
 ```bash
-withy diagnose              # check the install
-withy diagnose --mic        # also measure microphone start latency
-withy run --text "..." --dry   # run the text stages, print, don't type
-withy run take.wav --dry    # run a recording through the whole pipeline
-withy history               # what you have dictated
-withy mics                  # input devices, and which one is selected
+withy diagnose            # check the install
+withy models              # speech and polishing models available
+withy history             # what you have dictated
+withy run --text "..." --dry    # run the text stages, print, don't type
+withy purge 7             # keep the last week, delete the rest
 ```
+
+Your dictations and recordings stay in `~/.local/share/withy/`, your settings
+and vocabulary in `~/.config/withy/`. Nothing is sent anywhere unless you pick a
+remote polishing backend.
+
+---
+
+## The name
+
+A **withy** is a willow branch cut for weaving.
+
+This was written in a garden in Almere Buiten, in front of a heap of willow
+branches a neighbour had cut down the day before. The tree is gone now — the one
+whose long strands you could lie under on summer nights by a fire and watch
+moving against the sky. What is left is a pile of cut branches and the question
+of what to do with them.
+
+The traditional answer is that you weave them. Withies become baskets, fences,
+screens; the tree goes on being useful in another shape. That seemed like a fair
+description of a tool that takes speech — which is loose, disordered, and
+disappears the moment it is made — and weaves it into something that holds.
+
+<p align="center">
+  <img src="docs/willows.jpg" alt="Weeping willows along a river" width="380"><br>
+  <sub>The willows along the water, Almere Buiten</sub>
+</p>
+
+It is also, plainly, a free local alternative to the dictation tools people pay
+per seat for. But it is named after the tree, not after them.
 
 ---
 
