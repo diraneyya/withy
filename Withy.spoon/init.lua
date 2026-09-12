@@ -99,64 +99,62 @@ function obj:_run(args, done)
   end, args):start()
 end
 
--- ── the frond ────────────────────────────────────────────────────────────
--- A withy is a willow branch cut for weaving, so the mark is a weeping willow
--- frond: a short bough with strands hanging from it.
+-- ── the mark ─────────────────────────────────────────────────────────────
+-- A weeping willow, drawn in Inkscape and shipped as SVG alongside two
+-- rasterisations of it.
 --
--- It is drawn rather than shipped as a file, and set as a TEMPLATE image, which
--- is what lets macOS recolour it for light and dark menu bars and for a
--- highlighted menu. An emoji cannot do that, and a PNG would need two of them.
-local GLYPH = 20     -- drawing box; the menubar renders it around 18pt
+-- It is loaded as a TEMPLATE image, which is what lets macOS recolour it for
+-- light and dark menu bars and for a highlighted menu — an emoji cannot do
+-- that, and a coloured PNG needs one asset per appearance.
+--
+-- Two treatments, because a menubar glyph is about 18 points tall and detail
+-- does not survive that: "solid" is the artwork as drawn and reads as a dense
+-- tree silhouette; "outline" trades weight for legibility and keeps the dome
+-- and the hanging strands visible. Switchable from the menu.
+local GLYPH = 22
 
--- Each strand: where it leaves the bough, where it ends, and how far it bows.
-local STRANDS = {
-  { x = 4.5, y = 6.5, ey = 15.0, bow = -1.6 },
-  { x = 8.0, y = 5.6, ey = 18.0, bow = -1.0 },
-  { x = 12.0, y = 5.4, ey = 16.5, bow =  1.2 },
-  { x = 15.5, y = 6.2, ey = 12.5, bow =  1.8 },
-}
+-- Derived from this file's own path rather than hs.spoons.resourcePath(),
+-- which only resolves while the Spoon is being loaded and returns nil
+-- afterwards — so a lazily-rendered icon could not find its own artwork.
+local SPOON_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)")) or ""
 
-local function frondElements(color)
-  local els = {
-    -- the bough
-    { type = "segments", action = "stroke", strokeWidth = 1.5,
-      strokeColor = color, strokeCapStyle = "round",
-      coordinates = { { x = 2.5, y = 7.5 },
-                      { x = 17.5, y = 5.0, c1x = 7.0, c1y = 4.2, c2x = 13.0, c2y = 3.8 } } },
-  }
-  for _, st in ipairs(STRANDS) do
-    els[#els + 1] = {
-      type = "segments", action = "stroke", strokeWidth = 1.2,
-      strokeColor = color, strokeCapStyle = "round",
-      coordinates = { { x = st.x, y = st.y },
-                      { x = st.x + st.bow * 0.5, y = st.ey,
-                        c1x = st.x + st.bow, c1y = st.y + (st.ey - st.y) * 0.45,
-                        c2x = st.x + st.bow * 0.9, c2y = st.y + (st.ey - st.y) * 0.8 } },
-    }
-  end
-  return els
-end
+local imageCache = {}
 
-local iconCache = {}
+local function markImage(style, state)
+  local key = style .. ":" .. state
+  if imageCache[key] then return imageCache[key] end
 
-local function frondIcon(state)
-  if iconCache[state] then return iconCache[state] end
-  local ink = { white = 0, alpha = 1 }          -- template images are recoloured
+  local file = (style == "outline") and "willow-outline.png" or "willow.png"
+  local base = hs.image.imageFromPath(SPOON_DIR .. file)
+  if not base then return nil end
+
+  local ink = { white = 0, alpha = 1 }
   local c = hs.canvas.new({ x = 0, y = 0, w = GLYPH, h = GLYPH })
-  c:appendElements(table.unpack(frondElements(ink)))
+  -- The artwork is taller than it is wide; fit by height and centre it.
+  -- hs.image:size() returns { w = , h = } — NOT width/height.
+  local size = base:size()
+  local h = GLYPH
+  local w = size.w / size.h * h
+  c:appendElements({ type = "image", image = base,
+                     imageScaling = "scaleProportionally",
+                     frame = { x = (GLYPH - w) / 2, y = 0, w = w, h = h } })
   if state == "recording" then
-    -- a bud on the frond, rather than a red dot floating beside it
-    c:appendElements({ type = "circle", center = { x = 15.8, y = 16.0 }, radius = 2.6,
-                       action = "fill", fillColor = ink })
+    c:appendElements({ type = "circle", center = { x = GLYPH - 4, y = GLYPH - 4 },
+                       radius = 3.2, action = "fill", fillColor = ink })
   elseif state == "working" then
-    c:appendElements({ type = "circle", center = { x = 15.8, y = 16.0 }, radius = 2.4,
-                       action = "stroke", strokeWidth = 1.3, strokeColor = ink })
+    c:appendElements({ type = "circle", center = { x = GLYPH - 4, y = GLYPH - 4 },
+                       radius = 3.0, action = "stroke", strokeWidth = 1.4,
+                       strokeColor = ink })
   end
   local img = c:imageFromCanvas()
   c:delete()
   img:template(true)
-  iconCache[state] = img
+  imageCache[key] = img
   return img
+end
+
+local function markFor(state)
+  return markImage(setting("icon_style", "solid"), state or "idle")
 end
 
 -- ── indicator ────────────────────────────────────────────────────────────
@@ -207,7 +205,14 @@ end
 
 function obj:_setState(state)
   self.state = state
-  if self.menu then self.menu:setIcon(frondIcon(state or "idle")) end
+  -- Defensive: the menubar icon is decoration, the hotkey is the product. An
+  -- icon that fails to load must never stop dictation from working — it did
+  -- exactly that once, because a throw here aborted start() before the event
+  -- tap was ever created.
+  if self.menu then
+    local ok, img = pcall(markFor, state)
+    if ok and img then self.menu:setIcon(img) else self.menu:setTitle("~") end
+  end
   if state == "recording" then
     self:_banner("recording")
   elseif state == "idle" then
@@ -330,6 +335,13 @@ function obj:_buildMenu()
     checked = setting("postprocess", true),
     fn = function() saveSetting("postprocess", not setting("postprocess", true)) end,
   }
+  local style = setting("icon_style", "solid")
+  items[#items + 1] = { title = "Menu bar icon", menu = {
+    { title = "Willow (solid)", checked = (style == "solid"),
+      fn = function() saveSetting("icon_style", "solid"); imageCache = {}; self:_setState("idle") end },
+    { title = "Willow (outline)", checked = (style == "outline"),
+      fn = function() saveSetting("icon_style", "outline"); imageCache = {}; self:_setState("idle") end },
+  } }
   items[#items + 1] = {
     title = "On-screen banner",
     checked = setting("banner", true),
@@ -443,7 +455,7 @@ end
 function obj:start()
   self.menu = hs.menubar.new()
   if self.menu then
-    self.menu:setIcon(frondIcon("idle"))
+    self:_setState("idle")
     self.menu:setMenu(function() return self:_buildMenu() end)
   end
   self:_rebind()
