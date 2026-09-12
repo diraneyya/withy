@@ -309,10 +309,23 @@ def cmd_test_command(a) -> int:
 # Whisper weights, largest first. Only these two are offered: the turbo model is
 # the accuracy/speed sweet spot on Apple Silicon and base.en is the low-resource
 # option. Anything else can be dropped into the folder by hand and will be found.
-SPEECH_DOWNLOADS = {
-    "large-v3-turbo": ("1.6 GB", "best accuracy"),
-    "base.en":        ("148 MB", "much faster, English only, less accurate"),
-}
+# A curated subset of whisper.cpp's published weights, ordered biggest first.
+# Sizes are the real published ones, checked against the repository. The `-q5_0`
+# entries are the SAME model quantised: noticeably faster and a third of the
+# size, for a small accuracy cost — which is usually the right trade for
+# dictation. Anything else from the repo can be dropped into the folder by hand
+# and will be found.
+SPEECH_DOWNLOADS = [
+    ("large-v3",            "2952 MB", "most accurate, slowest"),
+    ("large-v3-turbo",      "1549 MB", "accurate and fast — the usual choice"),
+    ("large-v3-q5_0",       "1031 MB", "most accurate, quantised"),
+    ("large-v3-turbo-q5_0",  "547 MB", "same as turbo, quantised — faster, a third the size"),
+    ("medium.en",           "1463 MB", "English only"),
+    ("small.en",             "465 MB", "English only, fast"),
+    ("base.en",              "141 MB", "English only, much faster, less accurate"),
+    ("tiny.en",               "74 MB", "English only, fastest, least accurate"),
+]
+
 HF_URL = ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin")
 
 # A sensible first local model: small enough to download without thinking about
@@ -328,7 +341,9 @@ def cmd_models(a) -> int:
         "speech": {
             "installed": speech,
             "selected": pathlib.Path(str(config.settings()["whisper_model"])).stem[5:],
-            "downloadable": SPEECH_DOWNLOADS,
+                # a list, not a map: the menu must show these in this order
+            "downloadable": [{"name": n, "size": sz, "note": note}
+                             for n, sz, note in SPEECH_DOWNLOADS],
         },
         "local": {
             "runner_installed": fmt.ollama_installed(),

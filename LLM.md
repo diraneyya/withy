@@ -91,18 +91,18 @@ Optionally `brew uninstall whisper-cpp ffmpeg ollama` and delete the model at
 
 Polishing adds punctuation, paragraphs, quotes and applies spoken
 self-corrections. Transcription is always local; **only polishing has a choice**,
-and it is in the menu under **Polishing**:
+and it is in the menu under **Polishing LLM**:
 
 | Option | Speed | Leaves the machine | Needs |
 |---|---|---|---|
 | Off | instant | no | nothing |
-| On device (`qwen2.5:3b`) | ~1–5 s | **no** | Ollama + a ~2 GB model |
-| Use local CLI | ~15 s | depends on the tool | an assistant already installed |
-| Hosted OpenAI | ~2–3 s | **yes** | an API key |
-| Hosted Claude | ~2–3 s | **yes** | an API key |
+| Local model (`qwen2.5:3b`) | ~1–5 s | **no** | Ollama + a ~2 GB model |
+| Local CLI | ~15 s | depends on the tool | an assistant already installed |
+| Remote OpenAI API | ~2–3 s | **yes** | an API key |
+| Remote Anthropic API | ~2–3 s | **yes** | an API key |
 
-**Recommend "on device" by default.** It is the option that needs no key, no
-vendor review and no network. Recommend a hosted API only if they say latency or
+**Recommend the local model by default.** It is the option that needs no key, no
+vendor review and no network. Recommend a remote API only if they say latency or
 quality matters more than locality — and say plainly that the transcript is sent
 to that provider.
 
@@ -123,14 +123,13 @@ if the machine has the memory.
 company assistant installed. **Skip it when** either of the other two backends
 is available — a local CLI is usually better and costs nothing extra.
 
-Install or remove it later from the menu: **Polishing → On device →
-Install / Remove on-device polishing…**. Both open a Terminal so the download or
+Install or remove it later from the menu: **Polishing LLM → Local model**. Both open a Terminal so the download or
 uninstall is visible rather than hidden behind a menu item.
 
 Once installed, the menu lists every model that has been pulled, so
 `ollama pull qwen2.5:7b` is all it takes to offer a better one.
 
-### Helping them set up "Use local CLI"
+### Helping them set up "Local CLI"
 
 This is often the best option on a **work machine**, because the company may
 already provide a licensed assistant — so nobody has to distribute an API key.
@@ -382,7 +381,13 @@ withy models
 ```
 
 Speech models are discovered on disk, so anything dropped into
-`$(brew --prefix)/share/whisper-cpp/` as `ggml-<name>.bin` is offered. On-device
+`$(brew --prefix)/share/whisper-cpp/` as `ggml-<name>.bin` is offered, and the
+menu can download eight common ones directly.
+
+**The `-q5_0` variants are the same model quantised** — `large-v3-turbo-q5_0` is
+547 MB against the plain turbo's 1549 MB, and correspondingly faster to load and
+run, for a small accuracy cost. For dictation that is usually the right trade,
+and it is the first thing to try if transcription feels slow. On-device
 polishing offers whatever has been pulled — `ollama pull qwen2.5:7b` adds it to
 the menu. Both are switchable from the menu (**Speech model**, and **Polishing →
 On device**).

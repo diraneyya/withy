@@ -402,10 +402,10 @@ function obj:_buildMenu()
     return true
   end
 
-  local function hostedItem(provider, label, modelKey, modelDefault)
+  local function remoteItem(provider, label, modelKey, modelDefault)
     local have = hasKey(provider)
     return {
-      title = "Hosted " .. label .. " (" .. setting(modelKey, modelDefault) .. ") — "
+      title = "Remote " .. label .. " API (" .. setting(modelKey, modelDefault) .. ") — "
               .. (have and "API key available" or "API key needed"),
       checked = polishOn and backend == provider,
       fn = function()
@@ -425,11 +425,19 @@ function obj:_buildMenu()
   local function onDeviceItem()
     local models = localInfo.installed or {}
     if not localInfo.usable then
-      local why = (not localInfo.runner_installed) and "not installed"
-          or (not localInfo.runner_running) and "not running"
-          or "no model downloaded"
-      return { title = "On device — " .. why, menu = {
-        { title = "Install on-device polishing…",
+      -- Name the actual cause, and offer the action that fixes THAT cause.
+      -- "not running" wanting an "Install…" button is how a menu teaches people
+      -- it is lying to them.
+      local why, action
+      if not localInfo.runner_installed then
+        why, action = "not installed", "Install local model…"
+      elseif not localInfo.runner_running then
+        why, action = "runner not running", "Start the local model runner"
+      else
+        why, action = "no model downloaded", "Download a local model…"
+      end
+      return { title = "Local model — " .. why, menu = {
+        { title = action,
           fn = function()
             local cmd = hs.execute("'" .. cliPath() .. "' install-cmd local")
             runVisibly((cmd or ""):gsub("%s+$", ""))
@@ -445,12 +453,12 @@ function obj:_buildMenu()
         end }
     end
     sub[#sub + 1] = { title = "-" }
-    sub[#sub + 1] = { title = "Remove on-device polishing…",
+    sub[#sub + 1] = { title = "Remove local model…",
       fn = function()
         local cmd = hs.execute("'" .. cliPath() .. "' install-cmd remove-local")
         runVisibly((cmd or ""):gsub("%s+$", ""))
       end }
-    return { title = "On device (" .. tostring(localInfo.selected) .. ")",
+    return { title = "Local model (" .. tostring(localInfo.selected) .. ")",
              checked = polishOn and backend == "local", menu = sub }
   end
 
@@ -483,28 +491,28 @@ function obj:_buildMenu()
     return true
   end
 
-  items[#items + 1] = { title = "Polishing", menu = {
+  items[#items + 1] = { title = "Polishing LLM", menu = {
     { title = "Off — type exactly what was heard",
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
     onDeviceItem(),
-    { title = "Use local CLI — " .. cliLabel,
+    { title = "Local CLI — " .. cliLabel,
       checked = polishOn and backend == "command",
       fn = function()
         if #setting("polish_command", {}) == 0 and not askCommand() then return end
         saveSetting("postprocess", true); saveSetting("polish_backend", "command")
       end },
-    hostedItem("openai", "OpenAI", "openai_model", "gpt-4.1-mini"),
-    hostedItem("anthropic", "Claude", "anthropic_model", "claude-haiku-4-5"),
+    remoteItem("openai", "OpenAI", "openai_model", "gpt-4.1-mini"),
+    remoteItem("anthropic", "Anthropic", "anthropic_model", "claude-haiku-4-5"),
     { title = "-" },
     { title = "Set local CLI command…", fn = askCommand },
     { title = "Enter OpenAI API key…",
       fn = function() askKey("openai", "OpenAI") end },
-    { title = "Enter Claude API key…",
-      fn = function() askKey("anthropic", "Claude") end },
+    { title = "Enter Anthropic API key…",
+      fn = function() askKey("anthropic", "Anthropic") end },
     { title = "Remove OpenAI API key", disabled = not hasKey("openai"),
       fn = function() hs.execute("'" .. cliPath() .. "' remove-key openai") end },
-    { title = "Remove Claude API key", disabled = not hasKey("anthropic"),
+    { title = "Remove Anthropic API key", disabled = not hasKey("anthropic"),
       fn = function() hs.execute("'" .. cliPath() .. "' remove-key anthropic") end },
     { title = "-" },
     { title = "Edit polishing instructions…",
@@ -522,16 +530,17 @@ function obj:_buildMenu()
       end }
   end
   speechMenu[#speechMenu + 1] = { title = "-" }
-  for name, meta in pairs(speech.downloadable or {}) do
+  -- ipairs, not pairs: the order these are offered in is meaningful
+  for _, d in ipairs(speech.downloadable or {}) do
     local present = false
     for _, m in ipairs(speech.installed or {}) do
-      if m.name == name then present = true end
+      if m.name == d.name then present = true end
     end
     if not present then
       speechMenu[#speechMenu + 1] = {
-        title = "Download " .. name .. " (" .. meta[1] .. ") — " .. meta[2],
+        title = "Download " .. d.name .. " (" .. d.size .. ") — " .. d.note,
         fn = function()
-          local cmd = hs.execute("'" .. cliPath() .. "' install-cmd speech " .. ("%q"):format(name))
+          local cmd = hs.execute("'" .. cliPath() .. "' install-cmd speech " .. ("%q"):format(d.name))
           runVisibly((cmd or ""):gsub("%s+$", ""))
         end }
     end
