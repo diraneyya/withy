@@ -29,6 +29,10 @@ screens; the tree goes on being useful in another shape. That seemed like a
 fair description of a tool that takes speech — which is loose, disordered, and
 disappears the moment it is made — and weaves it into something that holds.
 
+<p align="center">
+  <img src="docs/willows.jpg" alt="Weeping willows along a river" width="380">
+</p>
+
 It is also, plainly, a free local alternative to the cloud dictation tools
 people pay per seat for. But it is named after the tree, not after them.
 
