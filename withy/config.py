@@ -32,7 +32,8 @@ def _env_path(name: str, default: str) -> Path:
 # /opt/homebrew/bin. Resolving tools through PATH alone therefore works from a
 # shell and fails from the menubar — which is the whole product. Search the
 # standard locations explicitly.
-_SEARCH_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/sbin",
+_SEARCH_DIRS = (os.path.expanduser("~/.local/bin"),
+                "/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/sbin",
                 "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 
 
@@ -99,6 +100,10 @@ DEFAULTS: dict = {
     # a hosted model — faster and better, but it is the one thing that leaves.
     "polish_backend": "local",
     "openai_model": "gpt-4.1-mini",
+    # Polishing runs on EVERY utterance, so the model is a recurring cost and a
+    # latency floor, not a one-off. Both hosted defaults are the fast, cheap
+    # tier of their family; raise them here if the quality does not hold.
+    "anthropic_model": "claude-haiku-4-5",
     # Explicit argv for the "command" backend; empty = auto-detect
     # (claude, then aifx agent run claude, then llm).
     "polish_command": [],

@@ -372,67 +372,96 @@ function obj:_buildMenu()
   end
   items[#items + 1] = { title = "Record key", menu = keyMenu }
 
-  -- Polishing backend. The hosted option is the ONLY thing in Withy that sends
-  -- anything off the machine, so it says so in the menu rather than hiding
-  -- behind a setting name.
+  -- ── Polishing ──────────────────────────────────────────────────────────
+  -- Four ways to run it, because the right answer depends on the machine:
+  -- nothing leaves a laptop that must not talk to anyone; a work machine often
+  -- already has a licensed assistant installed; a personal one may just want it
+  -- fast. Key state is shown in the label so "why is this doing nothing" is
+  -- answered before it is asked.
   local polishOn = setting("postprocess", true)
   local backend = setting("polish_backend", "local")
+
+  local function hasKey(provider)
+    return hs.fs.attributes(HOME .. "/.config/withy/" .. provider .. "-key") ~= nil
+  end
+
+  local function askKey(provider, label)
+    local btn, key = hs.dialog.textPrompt(
+      "Withy — " .. label .. " API key",
+      "Paste your " .. label .. " API key.\n\nIt is stored in "
+      .. "~/.config/withy/" .. provider .. "-key, readable only by you, and "
+      .. "never written to settings.json.",
+      "", "Save", "Cancel")
+    if btn ~= "Save" or not key or #key < 10 then return false end
+    -- Piped, not passed as an argument: a key on a command line is visible to
+    -- anything that can read the process table.
+    local f = io.popen("'" .. cliPath() .. "' set-key " .. provider, "w")
+    if not f then return false end
+    f:write(key); f:close()
+    return true
+  end
+
+  local function hostedItem(provider, label, modelKey, modelDefault)
+    local have = hasKey(provider)
+    return {
+      title = "Hosted " .. label .. " (" .. setting(modelKey, modelDefault) .. ") — "
+              .. (have and "API key available" or "API key needed"),
+      checked = polishOn and backend == provider,
+      fn = function()
+        if not hasKey(provider) and not askKey(provider, label) then return end
+        saveSetting("postprocess", true)
+        saveSetting("polish_backend", provider)
+      end,
+    }
+  end
+
+  local cliCmd = setting("polish_command", {})
+  local cliLabel = (#cliCmd > 0) and table.concat(cliCmd, " ") or "not set"
+
+  local function askCommand()
+    local btn, cmd = hs.dialog.textPrompt(
+      "Withy — local CLI",
+      "Command that takes a prompt on standard input and prints the answer.\n\n"
+      .. "At home this is usually:   claude -p --model haiku\n"
+      .. "At work it may be:         aifx agent run claude -p\n\n"
+      .. "Whatever assistant you have, use its non-interactive form.",
+      (#cliCmd > 0) and cliLabel or "claude -p --model haiku", "Save", "Cancel")
+    if btn ~= "Save" or not cmd or cmd == "" then return false end
+    hs.execute("'" .. cliPath() .. "' set-command " .. ("%q"):format(cmd))
+    return true
+  end
+
   items[#items + 1] = { title = "Polishing", menu = {
     { title = "Off — type exactly what was heard",
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
     { title = "On device (" .. setting("llm_model", "qwen2.5:3b") .. ")",
-      checked = polishOn and backend ~= "openai",
+      checked = polishOn and backend == "local",
       fn = function()
         saveSetting("postprocess", true); saveSetting("polish_backend", "local")
       end },
-    { title = "Command line assistant (slowest, no key needed)",
+    { title = "Use local CLI — " .. cliLabel,
       checked = polishOn and backend == "command",
       fn = function()
+        if #setting("polish_command", {}) == 0 and not askCommand() then return end
         saveSetting("postprocess", true); saveSetting("polish_backend", "command")
       end },
-    { title = "Hosted API (" .. setting("openai_model", "gpt-4.1-mini") .. ") — leaves this Mac",
-      checked = polishOn and backend == "openai",
-      fn = function()
-        saveSetting("postprocess", true); saveSetting("polish_backend", "openai")
-      end },
+    hostedItem("openai", "OpenAI", "openai_model", "gpt-4.1-mini"),
+    hostedItem("anthropic", "Claude", "anthropic_model", "claude-haiku-4-5"),
+    { title = "-" },
+    { title = "Set local CLI command…", fn = askCommand },
+    { title = "Enter OpenAI API key…",
+      fn = function() askKey("openai", "OpenAI") end },
+    { title = "Enter Claude API key…",
+      fn = function() askKey("anthropic", "Claude") end },
+    { title = "Remove OpenAI API key", disabled = not hasKey("openai"),
+      fn = function() hs.execute("'" .. cliPath() .. "' remove-key openai") end },
+    { title = "Remove Claude API key", disabled = not hasKey("anthropic"),
+      fn = function() hs.execute("'" .. cliPath() .. "' remove-key anthropic") end },
     { title = "-" },
     { title = "Edit polishing instructions…",
-      fn = function()
-        hs.execute("'" .. cliPath() .. "' prompt edit")
-      end },
-    { title = "Set API key…",
-      fn = function()
-        local ok, key = hs.dialog.textPrompt(
-          "Withy — hosted polishing",
-          "Paste an OpenAI API key. It is stored in ~/.config/withy/openai-key, "
-          .. "readable only by you, and never written to settings.json.",
-          "", "Save", "Cancel")
-        if ok == "Save" and key and #key > 10 then
-          -- Piped, not passed as an argument: a key on a command line is
-          -- visible to anything that can read the process table.
-          local f = io.popen("'" .. cliPath() .. "' set-key", "w")
-          if f then f:write(key); f:close() end
-        end
-      end },
+      fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end },
   } }
-  local current = setting("icon", "willow")
-  local iconMenu = {}
-  for _, n in ipairs(iconNames()) do
-    iconMenu[#iconMenu + 1] = {
-      title = n,
-      checked = (n == current),
-      -- Show the artwork beside its name so the menu is the chooser, not a
-      -- list of filenames you have to try one at a time.
-      image = hs.image.imageFromPath(SPOON_DIR .. "icons/" .. n .. ".png"),
-      fn = function()
-        saveSetting("icon", n)
-        imageCache = {}
-        self:_phase(nil)
-      end,
-    }
-  end
-  items[#items + 1] = { title = "Menu bar icon", menu = iconMenu }
 
   items[#items + 1] = {
     title = "On-screen banner",

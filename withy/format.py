@@ -36,6 +36,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -87,29 +88,56 @@ def ensure_prompt_file() -> None:
         config.PROMPT_FILE.write_text(PROMPT_FILE_SAMPLE, encoding="utf-8")
 
 
-def _api_key() -> str | None:
-    """The hosted-backend key.
+# Hosted providers. Each keeps its key in its own file so both can be
+# configured at once and either can be removed without touching the other.
+PROVIDERS = {
+    "openai": {
+        "label": "OpenAI",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "env": ("OPENAI_API_KEY", "WITHY_OPENAI_KEY"),
+        "model_setting": "openai_model",
+    },
+    "anthropic": {
+        "label": "Claude",
+        "url": "https://api.anthropic.com/v1/messages",
+        "env": ("ANTHROPIC_API_KEY", "WITHY_ANTHROPIC_KEY"),
+        "model_setting": "anthropic_model",
+    },
+}
 
-    Read from a file rather than settings.json, because settings.json is edited
-    by the menu and printed by `withy settings` — a secret does not belong in
-    something routinely dumped to a terminal. The file should be mode 600.
-    Falls back to the environment for people who already export it.
+
+def key_path(provider: str) -> pathlib.Path:
+    return config.CONFIG_DIR / f"{provider}-key"
+
+
+def _api_key(provider: str) -> str | None:
+    """A hosted provider's key.
+
+    Read from a file rather than settings.json, because settings.json is
+    rewritten by the menu and printed by `withy settings` — a secret does not
+    belong in something routinely dumped to a terminal. Mode 600. Falls back to
+    the environment for people who already export one.
     """
-    f = config.CONFIG_DIR / "openai-key"
+    f = key_path(provider)
     if f.exists():
         k = f.read_text(encoding="utf-8").strip()
         if k:
             return k
-    return os.environ.get("OPENAI_API_KEY") or os.environ.get("WITHY_OPENAI_KEY")
+    for var in PROVIDERS[provider]["env"]:
+        v = os.environ.get(var)
+        if v:
+            return v
+    return None
+
+
+def has_key(provider: str) -> bool:
+    return bool(_api_key(provider))
 
 
 def _openai(model: str, prompt: str, timeout: int) -> str | None:
-    """Hosted polishing. NOTE: this sends the transcript off the machine — the
-    one part of Withy that is not local. It is opt-in and off by default, and
-    the menu says so."""
-    key = _api_key()
+    key = _api_key("openai")
     if not key:
-        log("format: no API key — put one in ~/.config/withy/openai-key")
+        log("format: no OpenAI key")
         return None
     body = json.dumps({
         "model": model,
@@ -117,25 +145,56 @@ def _openai(model: str, prompt: str, timeout: int) -> str | None:
         "temperature": 0,
     }).encode("utf-8")
     req = urllib.request.Request(
-        OPENAI_URL, data=body,
+        PROVIDERS["openai"]["url"], data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {key}"})
+    return _http_text(req, timeout, "openai",
+                      lambda d: d["choices"][0]["message"]["content"])
+
+
+def _anthropic(model: str, prompt: str, timeout: int) -> str | None:
+    key = _api_key("anthropic")
+    if not key:
+        log("format: no Claude key")
+        return None
+    body = json.dumps({
+        "model": model,
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        PROVIDERS["anthropic"]["url"], data=body,
+        headers={"Content-Type": "application/json",
+                 "x-api-key": key,
+                 "anthropic-version": "2023-06-01"})
+    return _http_text(
+        req, timeout, "anthropic",
+        lambda d: "".join(b.get("text", "") for b in d.get("content", [])
+                          if b.get("type") == "text"))
+
+
+def _http_text(req, timeout: int, who: str, extract) -> str | None:
+    """POST and pull the text out, turning every failure into None + a log line.
+
+    The backends differ only in URL, auth header and response shape, so the
+    error handling lives here once.
+    """
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read())
-        return (data["choices"][0]["message"]["content"] or "").strip()
+        return (extract(data) or "").strip() or None
     except urllib.error.HTTPError as e:
-        log(f"format: openai HTTP {e.code}: {e.read()[:200]!r}")
-    except (urllib.error.URLError, TimeoutError, KeyError,
-            IndexError, json.JSONDecodeError, OSError) as e:
-        log(f"format: openai call failed: {type(e).__name__}: {e}")
+        log(f"format: {who} HTTP {e.code}: {e.read()[:200]!r}")
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError,
+            TypeError, json.JSONDecodeError, OSError) as e:
+        log(f"format: {who} call failed: {type(e).__name__}: {e}")
     return None
 
 
 # Command-line assistants, in preference order. Each entry is the argv that
-# takes a prompt on stdin and prints the answer on stdout. This is how a
-# machine that already has a licensed assistant installed can polish without
-# anyone shipping an API key.
+# takes a prompt on stdin and prints the answer on stdout — this is how a
+# machine that already has a licensed assistant can polish with no API key.
+#
 # `--model haiku` is not an optimisation, it is what makes this usable: the same
 # prompt took 76.7s on the default model and 16.6s on haiku, measured. Polishing
 # is a formatting task, not a reasoning one.
@@ -147,13 +206,13 @@ CLI_CANDIDATES = [
 
 
 def detect_cli() -> list[str] | None:
-    """The first available command-line assistant, or None."""
+    """The configured command, else the first available assistant, else None."""
     configured = config.settings().get("polish_command") or []
     if configured:
-        exe = shutil.which(configured[0])
+        exe = config._which(configured[0])
         return [exe] + list(configured[1:]) if exe else None
     for argv in CLI_CANDIDATES:
-        exe = shutil.which(argv[0])
+        exe = config._which(argv[0])
         if exe:
             return [exe] + argv[1:]
     return None
@@ -162,12 +221,13 @@ def detect_cli() -> list[str] | None:
 def _command(prompt: str, timeout: int) -> str | None:
     """Polish by piping the prompt into a local CLI assistant.
 
-    The prompt goes on STDIN rather than argv: a dictation can be thousands of
+    The prompt goes on STDIN, not argv: a dictation can be thousands of
     characters, and argv has both a length limit and a quoting minefield.
     """
     argv = detect_cli()
     if not argv:
-        log("format: no command-line assistant found (looked for claude, aifx, llm)")
+        log("format: no command-line assistant found — set one with "
+            "`withy set-command \"claude -p\"`")
         return None
     try:
         res = subprocess.run(argv, input=prompt, capture_output=True,
@@ -188,6 +248,9 @@ def _call_model(prompt: str) -> str | None:
     backend = str(s.get("polish_backend", "local"))
     if backend == "openai":
         return _openai(str(s.get("openai_model", "gpt-4.1-mini")), prompt, timeout)
+    if backend == "anthropic":
+        return _anthropic(str(s.get("anthropic_model", "claude-haiku-4-5")),
+                          prompt, timeout)
     if backend == "command":
         return _command(prompt, max(timeout, 60))
     return _ollama(str(s["llm_model"]), prompt, timeout)
@@ -561,7 +624,8 @@ def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict
     # A CLI assistant pays full process startup on every call (measured: ~8-10s
     # for `claude -p`), so chunking it would multiply the slowest part. Send the
     # whole dictation in one go.
-    default_size = {"openai": 200, "command": 2000}.get(backend, CHUNK_WORDS)
+    default_size = {"openai": 200, "anthropic": 200,
+                    "command": 2000}.get(backend, CHUNK_WORDS)
     size = int(s.get("chunk_words") or default_size)
 
     pieces, reasons = [], []

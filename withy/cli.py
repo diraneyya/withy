@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -154,23 +156,71 @@ def cmd_prompt(a) -> int:
 
 
 def cmd_set_key(a) -> int:
-    """Store the hosted-backend API key.
+    """Store a hosted provider's API key.
 
-    Read from stdin when no argument is given, so the key does not have to
-    appear in a command line. Written 0600, and deliberately NOT into
-    settings.json — that file is rewritten by the menu and printed by
-    `withy settings`.
+    Read from stdin when no argument is given, so the key never has to appear
+    in a command line. Written 0600, and deliberately NOT into settings.json —
+    that file is rewritten by the menu and printed by `withy settings`.
     """
-    key = a.key if a.key else sys.stdin.read()
-    key = key.strip()
+    if a.provider not in fmt.PROVIDERS:
+        print(f"unknown provider {a.provider!r}", file=sys.stderr)
+        return 2
+    key = (a.key if a.key else sys.stdin.read()).strip()
     if len(key) < 10:
         print("that does not look like a key", file=sys.stderr)
         return 1
     config.ensure_dirs()
-    f = config.CONFIG_DIR / "openai-key"
+    f = fmt.key_path(a.provider)
     f.write_text(key, encoding="utf-8")
     f.chmod(0o600)
-    print(f"saved to {f}")
+    print(f"saved {a.provider} key to {f}")
+    return 0
+
+
+def cmd_remove_key(a) -> int:
+    if a.provider not in fmt.PROVIDERS:
+        print(f"unknown provider {a.provider!r}", file=sys.stderr)
+        return 2
+    f = fmt.key_path(a.provider)
+    existed = f.exists()
+    f.unlink(missing_ok=True)
+    print(f"{'removed' if existed else 'no stored key for'} {a.provider}")
+    # An exported environment variable would still be picked up; say so rather
+    # than letting the user believe the key is gone.
+    if fmt.has_key(a.provider):
+        env = ", ".join(fmt.PROVIDERS[a.provider]["env"])
+        print(f"note: a key is still visible via the environment ({env})",
+              file=sys.stderr)
+    return 0
+
+
+def cmd_keys(a) -> int:
+    out = {p: {"stored": fmt.key_path(p).exists(),
+               "usable": fmt.has_key(p),
+               "label": fmt.PROVIDERS[p]["label"]}
+           for p in fmt.PROVIDERS}
+    if a.json:
+        _emit(out)
+    else:
+        for p, v in out.items():
+            print(f"  {v['label']:8} {'available' if v['usable'] else 'needed'}")
+    return 0
+
+
+def cmd_set_command(a) -> int:
+    """Set the local CLI used for polishing, e.g. `claude -p`."""
+    # Taken as ONE string and split here: argparse would otherwise swallow the
+    # flags the command needs ("-p" becomes an unrecognised option), and a
+    # quoted string is also what a GUI prompt naturally returns.
+    raw = a.command if a.command else sys.stdin.read()
+    argv = shlex.split(raw.strip())
+    if not argv:
+        print("no command given", file=sys.stderr)
+        return 1
+    if not shutil.which(argv[0]):
+        print(f"warning: {argv[0]!r} is not on PATH", file=sys.stderr)
+    config.save_settings({"polish_command": argv})
+    print("polish command: " + " ".join(argv))
     return 0
 
 
@@ -308,9 +358,22 @@ def main(argv: list[str] | None = None) -> int:
                    choices=["show", "path", "edit"])
     q.set_defaults(fn=cmd_prompt)
 
-    q = sub.add_parser("set-key", help="store the hosted-backend API key")
+    q = sub.add_parser("set-key", help="store a hosted provider's API key")
+    q.add_argument("provider", choices=["openai", "anthropic"])
     q.add_argument("key", nargs="?", help="omit to read from stdin")
     q.set_defaults(fn=cmd_set_key)
+
+    q = sub.add_parser("remove-key", help="delete a stored API key")
+    q.add_argument("provider", choices=["openai", "anthropic"])
+    q.set_defaults(fn=cmd_remove_key)
+
+    q = sub.add_parser("keys", help="which providers have a key")
+    q.add_argument("--json", action="store_true")
+    q.set_defaults(fn=cmd_keys)
+
+    q = sub.add_parser("set-command", help="the local CLI used for polishing")
+    q.add_argument("command", nargs="?", help='one string, e.g. "claude -p"')
+    q.set_defaults(fn=cmd_set_command)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")
