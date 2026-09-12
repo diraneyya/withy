@@ -33,6 +33,7 @@ happen. That asymmetry is the entire design.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import urllib.error
@@ -189,6 +190,106 @@ def gate(raw: str, formatted: str, terms: list[str]) -> tuple[bool, str]:
     return True, "ok"
 
 
+_TOKEN_RE = re.compile(r"(\S+)(\s*)")
+
+
+def _split_keep_space(text: str) -> list[tuple[str, str]]:
+    """[(word, trailing whitespace)] — the whitespace carries paragraph breaks."""
+    return [(m.group(1), m.group(2)) for m in _TOKEN_RE.finditer(text)]
+
+
+def reconcile(raw: str, formatted: str, terms: list[str]) -> tuple[str, int]:
+    """Keep the model's FORMATTING while refusing its word substitutions.
+
+    The gate below is all-or-nothing, and that turned out to be far too blunt in
+    practice: the model corrected one word ("y'all" -> "your") in a paragraph,
+    and the whole paragraph lost its capitalisation and its quotation marks.
+    The formatting was never the problem — one word was.
+
+    So instead of accepting or rejecting the output, align it against what was
+    actually said and take, token by token:
+
+      equal    -> the model's version, which carries the punctuation and casing
+      deleted  -> nothing; removing filler and retracted text is the point
+      inserted -> only vocabulary terms and list markers; never a new word
+      replaced -> the model's version ONLY if every token is a vocabulary term
+                  (that is what licenses "Homebro" -> "Homebrew"); otherwise the
+                  spoken words come back verbatim
+
+    The guarantee is therefore stronger than before, not weaker: no word can be
+    substituted for one that was never said — and the formatting still lands.
+    Returns (text, number of reverted substitutions).
+    """
+    rtoks = _split_keep_space(raw)
+    ftoks = _split_keep_space(formatted)
+    vocab_norms = {norm(t) for t in terms}
+    rn = [norm(w) for w, _ in rtoks]
+    fn = [norm(w) for w, _ in ftoks]
+
+    out: list[tuple[str, str]] = []
+    reverted = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=rn, b=fn, autojunk=False).get_opcodes():
+        if tag == "equal":
+            out.extend(ftoks[j1:j2])
+        elif tag == "delete":
+            continue
+        elif tag == "insert":
+            for w, ws in ftoks[j1:j2]:
+                n = norm(w)
+                if n in vocab_norms or n.isdigit() or not n:
+                    out.append((w, ws))
+                else:
+                    reverted += 1
+        else:  # replace
+            block = ftoks[j1:j2]
+            if block and all(norm(w) in vocab_norms for w, _ in block):
+                out.extend(block)
+            else:
+                out.extend(rtoks[i1:i2])
+                reverted += 1
+
+    text = "".join(w + (ws or " ") for w, ws in out).strip()
+    return text, reverted
+
+
+def capitalise_first(text: str) -> str:
+    """Upper-case the first letter. Speech has no capital letters, so this must
+    never depend on the model remembering to do it."""
+    for i, ch in enumerate(text):
+        if ch.isalpha():
+            return text[:i] + ch.upper() + text[i + 1:]
+        if not ch.isspace() and ch not in "\"'([":
+            break
+    return text
+
+
+# Real English prose runs about 0.05-0.15 commas per word. A small model that
+# loses the thread emits one comma per word — observed live, a whole paragraph
+# returned as "ones, maybe, some, other, issue, will, happen, and, by, the, ...".
+# Word-level reconciliation accepts that happily, because every word IS one that
+# was spoken; it is the punctuation that has gone mad. So the formatting needs a
+# sanity check of its own, separate from the content check.
+MAX_COMMA_RATE = 0.35
+MIN_WORDS_PER_LINE = 2.0
+
+
+def formatting_sane(raw: str, formatted: str) -> tuple[bool, str]:
+    """Is this plausibly prose, rather than a degenerate list of tokens?"""
+    words = formatted.split()
+    if not words:
+        return False, "no words"
+
+    rate = formatted.count(",") / len(words)
+    if rate > MAX_COMMA_RATE and formatted.count(",") > raw.count(",") + 3:
+        return False, f"{rate:.2f} commas per word"
+
+    lines = [l for l in formatted.splitlines() if l.strip()]
+    if len(lines) > 3 and len(words) / len(lines) < MIN_WORDS_PER_LINE:
+        return False, f"{len(words)/len(lines):.1f} words per line"
+
+    return True, "ok"
+
+
 def _chunks(text: str, size: int = CHUNK_WORDS) -> list[str]:
     """Split on sentence boundaries, accumulating up to ~`size` words."""
     sents = re.split(r"(?<=[.!?])\s+", text.strip())
@@ -228,15 +329,26 @@ def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict
         # Small models like to wrap output in a code fence or preamble.
         resp = re.sub(r"^```[a-z]*\n|\n```$", "", resp.strip())
         resp = _unwrap_quotes(_strip_markdown(resp))
+        # Catastrophic failures (empty output, the model giving up half way)
+        # still discard the chunk; word-level disagreements are reconciled.
         ok, why = gate(chunk, resp, terms)
-        if not ok:
-            log(f"format: REJECTED chunk ({why}) — keeping raw")
+        if not ok and ("empty" in why or "dropped" in why or "no content" in why):
+            log(f"format: DISCARDED chunk ({why}) — keeping raw")
             reasons.append(why)
             pieces.append(chunk)
-        else:
-            pieces.append(resp)
+            continue
+        merged, reverted = reconcile(chunk, resp, terms)
+        sane, why_insane = formatting_sane(chunk, merged)
+        if not sane:
+            log(f"format: DISCARDED chunk (degenerate formatting: {why_insane})")
+            reasons.append(why_insane)
+            pieces.append(chunk)
+            continue
+        if reverted:
+            log(f"format: reverted {reverted} substitution(s), kept formatting")
+        pieces.append(merged)
 
-    final = "\n\n".join(pieces) if len(pieces) > 1 else pieces[0]
+    final = capitalise_first("\n\n".join(pieces) if len(pieces) > 1 else pieces[0])
     applied = not reasons or len(reasons) < len(pieces)
     return final, {"applied": applied, "model": model,
                    "chunks": len(pieces), "rejected": reasons}

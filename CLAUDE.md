@@ -1,6 +1,6 @@
 # CLAUDE.md — orientation for a coding agent
 
-This is **Whisperbar**: local push-to-talk dictation for macOS. Hold a key,
+This is **Withy**: local push-to-talk dictation for macOS. Hold a key,
 speak, release, and the text is typed into the focused application. Everything
 runs on the machine.
 
@@ -10,7 +10,7 @@ This file is for changing the code.
 ## Shape
 
 ```
-whisperbar/          the pipeline (Python, stdlib only, runs on macOS's own python3)
+withy/          the pipeline (Python, stdlib only, runs on macOS's own python3)
   capture.py         ffmpeg -> 16 kHz mono WAV
   transcribe.py      whisper.cpp, two passes (detect language, then force it)
   correct.py         the deterministic rules that survived measurement
@@ -19,7 +19,7 @@ whisperbar/          the pipeline (Python, stdlib only, runs on macOS's own pyth
   history.py         append-only record; the recovery path
   pipeline.py        the whole flow in one function
   cli.py             command surface (the Spoon drives it; users never type it)
-Whisperbar.spoon/    Hammerspoon front end: record key, menubar, watchdog
+Withy.spoon/    Hammerspoon front end: record key, menubar, watchdog
 eval/run_eval.py     measures the formatting stage against real dictations
 docs/                design rationale; 05-gotchas.md is the important one
 ```
@@ -62,9 +62,9 @@ WAV's duration, the typed text — not the return code.
 ## Testing without a microphone
 
 ```bash
-python3 -m whisperbar run --text "um so the the plan" --dry   # text stages only
-python3 -m whisperbar run some.wav --dry                      # whole pipeline
-python3 -m whisperbar diagnose                                # install health
+python3 -m withy run --text "um so the the plan" --dry   # text stages only
+python3 -m withy run some.wav --dry                      # whole pipeline
+python3 -m withy diagnose                                # install health
 python3 eval/run_eval.py --limit 50 --input history.jsonl     # formatting quality
 ```
 

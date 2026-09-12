@@ -51,10 +51,11 @@ def list_mics() -> list[str]:
     return names
 
 
-def resolve_mic() -> str:
-    """The device name to record from."""
-    want = str(config.settings()["mic"])
+def _pick_mic() -> str:
+    """Enumerate devices and choose one. SLOW — 0.15-1.0s, because it spins up
+    the whole AVFoundation stack. Never call this on the recording path."""
     mics = list_mics()
+    want = str(config.settings()["mic"])
     if want and want != "default":
         for n in mics:
             if want.lower() in n.lower():
@@ -65,6 +66,27 @@ def resolve_mic() -> str:
             if pref in n.lower():
                 return n
     return mics[0] if mics else "default"
+
+
+def resolve_mic(refresh: bool = False) -> str:
+    """The device name to record from — cached, because enumerating costs up to
+    a second and that second is speech the user has already started saying.
+
+    This was measured: device enumeration on every key-press was the dominant
+    part of the gap between pressing the key and audio actually being captured,
+    and it is what made the first few words of a dictation disappear.
+    """
+    s = config.settings()
+    want = str(s["mic"])
+    if not refresh:
+        if want and want != "default":
+            return want          # ffmpeg matches the name as a substring
+        cached = str(s.get("resolved_mic") or "")
+        if cached:
+            return cached
+    name = _pick_mic()
+    config.save_settings({"resolved_mic": name})
+    return name
 
 
 def is_recording() -> bool:
@@ -123,7 +145,8 @@ def stop() -> Path | None:
 
     wav = config.CURRENT_WAV
     if not wav.exists() or wav.stat().st_size == 0:
-        log("stop: WAV empty — wrong input device? run `whisperbar diagnose`")
+        log("stop: WAV empty — stale input device? clearing the cached mic")
+        config.save_settings({"resolved_mic": ""})
         set_state("idle")
         return None
 

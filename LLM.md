@@ -1,10 +1,10 @@
-# Whisperbar — installation instructions for an AI agent
+# Withy — installation instructions for an AI agent
 
-You are installing **Whisperbar**, a local push-to-talk dictation tool for macOS,
+You are installing **Withy**, a local push-to-talk dictation tool for macOS,
 on behalf of the person you are talking to. This document is the whole task.
 Follow it top to bottom.
 
-Source: <https://github.com/diraneyya/whisperbar>
+Source: <https://github.com/diraneyya/withy>
 
 ## What you are installing
 
@@ -26,8 +26,8 @@ Then ask them to confirm. Do not start a multi-gigabyte download without a yes.
 ## Install
 
 ```bash
-git clone https://github.com/diraneyya/whisperbar.git
-cd whisperbar
+git clone https://github.com/diraneyya/withy.git
+cd withy
 ./install.sh
 ```
 
@@ -41,14 +41,14 @@ do not attempt the steps by hand.
 ## Verify — do not skip this
 
 ```bash
-~/.local/bin/whisperbar diagnose
+~/.local/bin/withy diagnose
 ```
 
 Every line must read `[ok]`. Then prove the pipeline works end to end without
 needing the microphone or the hotkey:
 
 ```bash
-~/.local/bin/whisperbar run --text "um so the the plan is to test this" --dry
+~/.local/bin/withy run --text "um so the the plan is to test this" --dry
 ```
 
 That should print a cleaned, punctuated sentence. If it prints the input
@@ -77,11 +77,11 @@ is usually taken. If the user wants `fn`, tell them to:
 2. pick `fn (globe)` from the menubar → **Record key**
 
 Both tools can be installed at once on different keys — that is the intended way
-to trial Whisperbar against whatever they use now.
+to trial Withy against whatever they use now.
 
 ## The vocabulary file
 
-`~/.config/whisperbar/vocabulary.txt` — words the speech model would otherwise
+`~/.config/withy/vocabulary.txt` — words the speech model would otherwise
 get wrong: project names, product names, acronyms, colleagues' names. Space- or
 newline-separated, `#` for comments.
 
@@ -99,18 +99,18 @@ can offer to populate it. Two rules:
 |---|---|---|
 | Nothing happens on the record key | Hammerspoon lacks Input Monitoring | grant it, then menubar → Reload |
 | Text appears in the wrong window | focus moved during transcription | menubar → Recent dictations → Copy |
-| Dictation is empty, no error | wrong input device | `whisperbar mics`, then set `mic` in settings |
+| Dictation is empty, no error | wrong input device | `withy mics`, then set `mic` in settings |
 | Wording clean-up never applies | Ollama not running | `ollama serve`, then re-run `diagnose` |
 | A word is consistently misheard | not in the vocabulary | add it to `vocabulary.txt` |
 
-Logs: `/tmp/whisperbar.log`. Nothing is ever lost — every dictation is in the
+Logs: `/tmp/withy.log`. Nothing is ever lost — every dictation is in the
 menubar history even when typing fails.
 
 ## Uninstall
 
 ```bash
-rm -rf ~/.local/share/whisperbar ~/.config/whisperbar \
-       ~/.local/bin/whisperbar ~/.hammerspoon/Spoons/Whisperbar.spoon
+rm -rf ~/.local/share/withy ~/.config/withy \
+       ~/.local/bin/withy ~/.hammerspoon/Spoons/Withy.spoon
 ```
 
-Then remove the `hs.loadSpoon("Whisperbar")` line from `~/.hammerspoon/init.lua`.
+Then remove the `hs.loadSpoon("Withy")` line from `~/.hammerspoon/init.lua`.

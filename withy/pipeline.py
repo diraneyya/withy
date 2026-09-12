@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import capture, config, correct, format as fmt, history, inject, transcribe, vocab
+from . import capture, config, correct, format as fmt, history, inject, speech, transcribe, vocab
 from .log import log, set_state
 
 
@@ -20,6 +20,15 @@ def process(wav: Path, type_it: bool = True) -> dict:
     """Run a recorded take all the way to the screen. Returns the history record."""
     s = config.settings(reload=True)
     terms = vocab.load()
+
+    # Cheap check before the expensive one: whisper invents a confident
+    # sentence out of room tone, and typing "Thank you." when nothing was said
+    # is worse than typing nothing.
+    talking, spread = speech.has_speech(wav)
+    if not talking:
+        log(f"no speech detected (spread {spread:.1f} dB) — nothing typed")
+        set_state("idle")
+        return {}
 
     set_state("transcribing")
     raw, lang = transcribe.transcribe(wav, vocab.whisper_prompt(terms))

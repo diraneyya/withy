@@ -1,27 +1,37 @@
-# Whisperbar
+# Withy
 
 **Push-to-talk dictation for macOS that runs entirely on your machine.**
 Hold a key, speak, let go — the text is typed into whatever app has focus.
 Nothing is uploaded, nothing is transcribed in a datacentre, and there is no
 per-seat licence.
 
-```
-   ┌──────────┐   hold key   ┌─────────┐   ┌──────────┐   ┌────────┐
-   │ menubar  │─────────────▶│ record  │──▶│ whisper  │──▶│ clean  │
-   │    🎙     │◀── release ──│ (local) │   │ (local)  │   │ up     │
-   └──────────┘              └─────────┘   └──────────┘   └───┬────┘
-        ▲                                                     │
-        │ history, vocabulary, record key           types into ▼
-        └──────────────────────────────────── whatever has focus
-```
+---
+
+## The name
+
+A **withy** is a willow branch cut for weaving.
+
+This was written in a garden, in front of a heap of willow branches a neighbour
+had cut down the day before. The tree is gone now — the one whose long strands
+you could lie under on summer nights by a fire and watch moving against the
+sky. What is left is a pile of cut branches and the question of what to do with
+them.
+
+The traditional answer is that you weave them. Withies become baskets, fences,
+screens; the tree goes on being useful in another shape. That seemed like a
+fair description of a tool that takes speech — which is loose, disordered, and
+disappears the moment it is made — and weaves it into something that holds.
+
+It is also, plainly, a free local alternative to the cloud dictation tools
+people pay per seat for. But it is named after the tree, not after them.
 
 ---
 
 ## Install
 
 ```bash
-git clone https://github.com/diraneyya/whisperbar.git
-cd whisperbar
+git clone https://github.com/diraneyya/withy.git
+cd withy
 ./install.sh
 ```
 
@@ -30,8 +40,8 @@ System Settings → Privacy & Security, hold **right Option**, and speak.
 
 Or hand the whole job to a coding agent — paste this at it:
 
-> Install Whisperbar on my Mac by following
-> https://raw.githubusercontent.com/diraneyya/whisperbar/master/LLM.md
+> Install Withy on my Mac by following
+> https://raw.githubusercontent.com/diraneyya/withy/master/LLM.md
 
 Requires macOS with [Homebrew](https://brew.sh). About 4 GB of models. No Python
 environment to manage — it runs on the Python that ships with macOS and has no
@@ -41,7 +51,7 @@ third-party Python dependencies at all.
 
 ## Why this exists
 
-|  | Cloud dictation (Willow, Wispr Flow, …) | Whisperbar |
+|  | Cloud dictation (Willow, Wispr Flow, …) | Withy |
 |---|---|---|
 | Per-seat cost | ~$10–15/user/month | none |
 | Audio leaves the device | every utterance | never |
@@ -77,16 +87,16 @@ The **🎙 menubar icon** holds everything else:
 
 `fn` (globe) is the best key to hold: bottom-left, findable by feel, no chord.
 It is also the key macOS binds to Apple Dictation, and the one Willow Voice and
-Wispr Flow take. So Whisperbar defaults to **right Option** and lets you move it.
+Wispr Flow take. So Withy defaults to **right Option** and lets you move it.
 
-That is deliberate: install Whisperbar on a different key from whatever you use
+That is deliberate: install Withy on a different key from whatever you use
 today, and compare them on the same sentences before you commit. To switch to
 `fn` later, turn off the incumbent, set System Settings → Keyboard →
 *Press 🌐 to: Do Nothing*, and pick `fn (globe)` from the menu.
 
 ### The vocabulary file
 
-`~/.config/whisperbar/vocabulary.txt` — one flat list of the words a speech
+`~/.config/withy/vocabulary.txt` — one flat list of the words a speech
 model gets wrong. Project names, products, acronyms, colleagues' names.
 
 ```
@@ -113,7 +123,7 @@ with vocabulary:    "we use Homebrew ... install Hammerspoon and Ollama"
 ## How the text gets cleaned up
 
 Speech has no punctuation, no paragraphs, and no quotation marks. Filling those
-in is not a rules problem, so Whisperbar runs the transcript through a small
+in is not a rules problem, so Withy runs the transcript through a small
 local language model (via Ollama) that may **only reformat**:
 
 ```
@@ -126,15 +136,61 @@ typed      ...like a child going to mama saying, "Oh mama, I hate it. This is so
 ```
 
 A small model given an open brief will rewrite meaning. The defence is not a
-better prompt — it is a **gate**:
+better prompt. The model's output is **aligned against what you actually said**
+and taken word by word:
 
-> Every word in the output must be a word that was spoken in this dictation, a
-> term from your vocabulary file, or a list marker. If the model invents a word,
-> the entire output is thrown away and the plain transcript is typed instead.
+| | |
+|---|---|
+| words that match | the model's version — this is where the punctuation, casing and quotes come from |
+| words it deleted | allowed; removing filler and retracted text is the point |
+| words it inserted | refused, unless they are vocabulary terms or list markers |
+| words it swapped | reverted to what you said, unless every token is a vocabulary term |
 
-So the worst case is not corruption. It is that formatting quietly doesn't
-happen. That asymmetry is the design. Turn the whole stage off from the menubar
-if you would rather have the raw words.
+**No word can be replaced by one you never said** — and unlike an
+accept-or-reject gate, one bad word no longer costs you the formatting of the
+whole paragraph. (It did, before this was measured: the model corrected "y'all"
+to "your", and that single word discarded the capitalisation and quotation
+marks for an entire dictation.)
+
+Two further checks sit on top, because word-level safety is not the only way
+this can go wrong:
+
+- **Degenerate formatting is rejected.** A small model that loses the thread
+  emits one comma per word — `ones, maybe, some, other, issue, will, happen,` —
+  which passes a word check perfectly, since every word *was* spoken. Comma and
+  line density are checked against what prose actually looks like.
+- **Capitalising the first letter is deterministic**, never the model's job, so
+  it happens even when a chunk is discarded.
+
+Turn the whole stage off from the menubar if you would rather have the raw
+words.
+
+---
+
+## Silence
+
+Whisper hallucinates on silence. Fed a second of room tone it returns a
+confident **"Thank you."** — and a dictation tool that types "Thank you." when
+you said nothing is worse than one that does nothing.
+
+The obvious fix is a loudness threshold, and it is the wrong one: a level tuned
+for a quiet room rejects real speech in a garden and passes a fan in an office.
+The noise floor is not a constant, so it cannot be in the test.
+
+What separates speech from noise regardless of the floor is that **speech is
+amplitude-modulated at the syllable rate** — loud bursts with real gaps between
+them — while a fan, traffic and room tone hold a near-constant level. So Withy
+measures the *spread* between loud and quiet frames, which is a ratio and
+therefore floor-independent. Measured on real dictations:
+
+```
+real speech (13 takes)        spread 16.2 - 35.9 dB
+"Thank you." on silence (2)   spread 10.3 and 10.5 dB
+```
+
+The threshold sits at 13 dB, and deliberately errs toward transcribing — typing
+nothing when you spoke is the worse failure. Every measurement is logged so it
+can be retuned against data rather than re-guessed.
 
 ---
 
@@ -178,8 +234,8 @@ wrong fix is silent and ships.
 
 | Path | What it is |
 |---|---|
-| `whisperbar/` | the pipeline — capture, transcribe, correct, format, inject, history |
-| `Whisperbar.spoon/` | the Hammerspoon front end: record key, menubar, watchdog |
+| `withy/` | the pipeline — capture, transcribe, correct, format, inject, history |
+| `Withy.spoon/` | the Hammerspoon front end: record key, menubar, watchdog |
 | `install.sh` | installer, idempotent, appends to an existing Hammerspoon config |
 | `LLM.md` | the same install as instructions for a coding agent |
 | `eval/` | measures the clean-up stage against a corpus of real dictations |
@@ -191,16 +247,16 @@ dictations arriving truncated, destroyed clipboards.
 
 ### Command line
 
-Whisperbar is a menubar app and you never need this, but it exists — the Spoon
+Withy is a menubar app and you never need this, but it exists — the Spoon
 drives it, and it makes every stage testable without a microphone:
 
 ```bash
-whisperbar diagnose              # check the install
-whisperbar diagnose --mic        # also measure microphone start latency
-whisperbar run --text "..." --dry   # run the text stages, print, don't type
-whisperbar run take.wav --dry    # run a recording through the whole pipeline
-whisperbar history               # what you have dictated
-whisperbar mics                  # input devices, and which one is selected
+withy diagnose              # check the install
+withy diagnose --mic        # also measure microphone start latency
+withy run --text "..." --dry   # run the text stages, print, don't type
+withy run take.wav --dry    # run a recording through the whole pipeline
+withy history               # what you have dictated
+withy mics                  # input devices, and which one is selected
 ```
 
 ---

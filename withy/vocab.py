@@ -1,7 +1,7 @@
 """
 vocab.py — the vocabulary file.
 
-One plain text file, at ~/.config/whisperbar/vocabulary.txt. Terms are
+One plain text file, at ~/.config/withy/vocabulary.txt. Terms are
 separated by whitespace or newlines; `#` starts a comment. That is the whole
 format:
 
@@ -29,7 +29,7 @@ import re
 from . import config
 
 SAMPLE = """\
-# Whisperbar vocabulary
+# Withy vocabulary
 #
 # Words the speech model would otherwise get wrong: project names, product
 # names, acronyms, colleagues' names, jargon. Separate them with spaces or
@@ -38,8 +38,11 @@ SAMPLE = """\
 # Keep this list SHORT and specific. Every entry is a chance to correct a
 # word — and a chance to corrupt one. Do not add ordinary English words.
 
-# examples — replace these with your own
-Kubernetes PagerDuty Grafana Terraform
+# Examples, commented out. Uncomment or replace with your own:
+#
+#   Kubernetes PagerDuty Grafana Terraform
+#
+# Nothing below this line is active until you remove the leading #.
 """
 
 

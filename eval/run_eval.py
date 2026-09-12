@@ -62,8 +62,8 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.model:
-        os.environ["WHISPERBAR_LLM_MODEL"] = args.model
-    from whisperbar import config, correct, format as fmt   # noqa: E402
+        os.environ["WITHY_LLM_MODEL"] = args.model
+    from withy import config, correct, format as fmt   # noqa: E402
 
     terms = []
     if args.vocab and args.vocab.exists():

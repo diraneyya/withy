@@ -3,10 +3,10 @@ config.py — paths, settings, and defaults.
 
 Two directories, deliberately separate:
 
-  ~/.config/whisperbar/       things the USER edits (settings.json, vocabulary.txt)
-  ~/.local/share/whisperbar/  things the TOOL writes (history.jsonl, audio/)
+  ~/.config/withy/       things the USER edits (settings.json, vocabulary.txt)
+  ~/.local/share/withy/  things the TOOL writes (history.jsonl, audio/)
 
-Nothing is shared with any other tool on the machine. Whisperbar can therefore
+Nothing is shared with any other tool on the machine. Withy can therefore
 be installed alongside an existing dictation setup — including another
 Hammerspoon-based one — without either knowing the other exists.
 
@@ -21,11 +21,19 @@ import os
 import shutil
 from pathlib import Path
 
-APP = "whisperbar"
+APP = "withy"
 
 
 def _env_path(name: str, default: str) -> Path:
     return Path(os.environ.get(name) or default).expanduser()
+
+
+# Hammerspoon spawns processes with a minimal PATH that does NOT include
+# /opt/homebrew/bin. Resolving tools through PATH alone therefore works from a
+# shell and fails from the menubar — which is the whole product. Search the
+# standard locations explicitly.
+_SEARCH_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/sbin",
+                "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 
 
 def _which(*names: str) -> str | None:
@@ -33,28 +41,44 @@ def _which(*names: str) -> str | None:
         p = shutil.which(n)
         if p:
             return p
+    for d in _SEARCH_DIRS:
+        for n in names:
+            c = os.path.join(d, n)
+            if os.access(c, os.X_OK):
+                return c
     return None
 
 
+def usable(path: str | None) -> bool:
+    """Is this an actual executable, rather than a bare name we never resolved?
+
+    `_which` falls back to the plain name so error messages stay readable, but a
+    bare name is exactly what blows up under a minimal PATH — so anything that
+    REPORTS on the install has to check this, not merely that the string is
+    non-empty.
+    """
+    return bool(path) and os.path.isabs(path) and os.access(path, os.X_OK)
+
+
 # ── directories ─────────────────────────────────────────────────────────────
-CONFIG_DIR = _env_path("WHISPERBAR_CONFIG_DIR", f"~/.config/{APP}")
-DATA_DIR = _env_path("WHISPERBAR_DATA_DIR", f"~/.local/share/{APP}")
+CONFIG_DIR = _env_path("WITHY_CONFIG_DIR", f"~/.config/{APP}")
+DATA_DIR = _env_path("WITHY_DATA_DIR", f"~/.local/share/{APP}")
 
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 VOCAB_FILE = CONFIG_DIR / "vocabulary.txt"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
 AUDIO_DIR = DATA_DIR / "audio"
 
-LOG_FILE = Path(os.environ.get("WHISPERBAR_LOG", f"/tmp/{APP}.log"))
-STATE_FILE = Path(os.environ.get("WHISPERBAR_STATE", f"/tmp/{APP}-state"))
+LOG_FILE = Path(os.environ.get("WITHY_LOG", f"/tmp/{APP}.log"))
+STATE_FILE = Path(os.environ.get("WITHY_STATE", f"/tmp/{APP}-state"))
 PID_FILE = Path(f"/tmp/{APP}-ffmpeg.pid")
 CURRENT_WAV = Path(f"/tmp/{APP}-input.wav")
 
 # ── binaries ────────────────────────────────────────────────────────────────
-WHISPER_BIN = os.environ.get("WHISPERBAR_WHISPER_BIN") or _which("whisper-cli", "whisper-cpp") or "whisper-cli"
-FFMPEG_BIN = os.environ.get("WHISPERBAR_FFMPEG_BIN") or _which("ffmpeg") or "ffmpeg"
-FFPROBE_BIN = os.environ.get("WHISPERBAR_FFPROBE_BIN") or _which("ffprobe") or "ffprobe"
-OLLAMA_BIN = os.environ.get("WHISPERBAR_OLLAMA_BIN") or _which("ollama") or "ollama"
+WHISPER_BIN = os.environ.get("WITHY_WHISPER_BIN") or _which("whisper-cli", "whisper-cpp") or "whisper-cli"
+FFMPEG_BIN = os.environ.get("WITHY_FFMPEG_BIN") or _which("ffmpeg") or "ffmpeg"
+FFPROBE_BIN = os.environ.get("WITHY_FFPROBE_BIN") or _which("ffprobe") or "ffprobe"
+OLLAMA_BIN = os.environ.get("WITHY_OLLAMA_BIN") or _which("ollama") or "ollama"
 
 # ── defaults ────────────────────────────────────────────────────────────────
 # record_key defaults to right-Option rather than fn, because fn is the key an
@@ -65,10 +89,16 @@ DEFAULTS: dict = {
     "whisper_model": "/opt/homebrew/share/whisper-cpp/ggml-large-v3-turbo.bin",
     "language": "auto",
     "mic": "default",
+    # Filled in automatically the first time a device is chosen, so the
+    # recording path never pays for enumeration.
+    "resolved_mic": "",
     "postprocess": True,
     "llm_model": "qwen2.5:3b",
     "llm_timeout": 25,   # a stalled model must not hold up typing
     "min_clip_seconds": 0.3,
+    # dB between loud and quiet frames below which a take is treated as having
+    # no speech in it. See speech.py for how this number was chosen.
+    "speech_spread_db": 13.0,
     "keep_audio_days": 7,
     "sound": True,
     # Absolute path to the launcher. Written by install.sh and read by the
@@ -92,12 +122,12 @@ def settings(reload: bool = False) -> dict:
         except (OSError, json.JSONDecodeError):
             pass  # a corrupt settings file must never stop dictation working
     # Environment overrides win over the file — this is the offline-test path.
-    if os.environ.get("WHISPERBAR_MODEL"):
-        s["whisper_model"] = os.environ["WHISPERBAR_MODEL"]
-    if os.environ.get("WHISPERBAR_LLM_MODEL"):
-        s["llm_model"] = os.environ["WHISPERBAR_LLM_MODEL"]
-    if os.environ.get("WHISPERBAR_POSTPROCESS"):
-        s["postprocess"] = os.environ["WHISPERBAR_POSTPROCESS"] not in ("0", "false", "no")
+    if os.environ.get("WITHY_MODEL"):
+        s["whisper_model"] = os.environ["WITHY_MODEL"]
+    if os.environ.get("WITHY_LLM_MODEL"):
+        s["llm_model"] = os.environ["WITHY_LLM_MODEL"]
+    if os.environ.get("WITHY_POSTPROCESS"):
+        s["postprocess"] = os.environ["WITHY_POSTPROCESS"] not in ("0", "false", "no")
     _cache = s
     return s
 

@@ -4,4 +4,4 @@
 "doc":"Local push-to-talk dictation for macOS. Hold a key, speak, release; the text is typed into whatever has focus. Everything runs locally.",
 "Method":[{"desc":"Start the hotkey and menubar.","name":"start"},
 {"desc":"Stop the hotkey and remove the menubar.","name":"stop"}],
-"name":"Whisperbar"}]
+"name":"Withy"}]

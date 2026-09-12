@@ -35,7 +35,7 @@ KEYSTROKE_MAX = 120
 # PID-unique: two dictations can legitimately be in flight at once (a long take
 # still transcribing while the next one finishes), and a shared temp file would
 # let the second overwrite the first mid-read.
-TYPE_TMP = Path(f"/tmp/whisperbar-out-{os.getpid()}.txt")
+TYPE_TMP = Path(f"/tmp/withy-out-{os.getpid()}.txt")
 
 HS_BIN = shutil.which("hs")
 

@@ -1,7 +1,7 @@
 """
 cli.py — the command surface.
 
-Whisperbar is a menubar application; a user never needs to type any of this.
+Withy is a menubar application; a user never needs to type any of this.
 It exists because the Hammerspoon front-end drives it, the installer verifies
 itself with it, and every part of the pipeline has to be testable without a
 microphone or a hotkey.
@@ -175,9 +175,11 @@ def cmd_diagnose(a) -> int:
         print(f"  [{'ok' if good else 'FAIL'}] {label}{'  ' + detail if detail else ''}")
 
     print("binaries")
-    check("ffmpeg", bool(config.FFMPEG_BIN), config.FFMPEG_BIN)
-    check("whisper-cli", bool(config.WHISPER_BIN), config.WHISPER_BIN)
-    check("hammerspoon (hs)", bool(inject.HS_BIN),
+    for label, path in (("ffmpeg", config.FFMPEG_BIN),
+                        ("whisper-cli", config.WHISPER_BIN)):
+        good = config.usable(path)
+        check(label, good, path if good else f"{path} — NOT RESOLVED (PATH problem)")
+    check("hammerspoon (hs)", config.usable(inject.HS_BIN),
           inject.HS_BIN or "not found — falling back to osascript")
 
     print("model")
@@ -225,7 +227,7 @@ def cmd_diagnose(a) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="whisperbar", description=__doc__)
+    p = argparse.ArgumentParser(prog="withy", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("start", help="begin recording").set_defaults(fn=cmd_start)
@@ -287,5 +289,5 @@ def main(argv: list[str] | None = None) -> int:
         return a.fn(a)
     except Exception as e:                                   # noqa: BLE001
         log(f"cli {a.cmd} CRASHED: {type(e).__name__}: {e}")
-        print(f"whisperbar: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"withy: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
