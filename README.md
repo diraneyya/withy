@@ -1,9 +1,16 @@
-# Withy
+<p align="center">
+  <img src="docs/logo.png" alt="" width="132">
+</p>
 
-**Push-to-talk dictation for macOS that runs entirely on your machine.**
-Hold a key, speak, let go — the text is typed into whatever app has focus.
-Nothing is uploaded, nothing is transcribed in a datacentre, and there is no
-per-seat licence.
+<h1 align="center">Withy</h1>
+
+
+<p align="center">
+  <strong>Push-to-talk dictation for macOS that runs entirely on your machine.</strong><br>
+  Hold a key, speak, let go — the text is typed into whatever app has focus.<br>
+  Nothing is uploaded, nothing is transcribed in a datacentre,<br>
+  and there is no per-seat licence.
+</p>
 
 ---
 
