@@ -32,6 +32,31 @@ _EMPTY_RE = re.compile(r"[\[\(].*[\]\)]|\.|\s*")
 _LANG_RE = re.compile(r"auto-detected language:\s*(\w+)\s*\(p\s*=\s*([0-9.]+)\)")
 
 
+def speech_models() -> list[dict]:
+    """Whisper models found on disk, largest first.
+
+    Discovered rather than assumed: the app should offer what is actually
+    installed, not a hard-coded list that may not match the machine.
+    """
+    seen: dict[str, dict] = {}
+    dirs = [Path(str(config.settings()["whisper_model"])).parent,
+            Path("/opt/homebrew/share/whisper-cpp"),
+            Path("/usr/local/share/whisper-cpp"),
+            Path.home() / ".local/share/whisper"]
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for f in d.glob("ggml-*.bin"):
+            # the formula ships a tiny fixture that is not a usable model
+            if f.name.startswith("for-tests-"):
+                continue
+            name = f.stem[len("ggml-"):]
+            if name not in seen:
+                seen[name] = {"name": name, "path": str(f),
+                              "size_mb": round(f.stat().st_size / 1048576)}
+    return sorted(seen.values(), key=lambda m: -m["size_mb"])
+
+
 def clip_duration(wav: Path) -> float:
     res = subprocess.run(
         [config.FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",

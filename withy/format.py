@@ -324,6 +324,34 @@ one of them, use the correct spelling; otherwise leave every word alone:
 {terms}"""
 
 
+def ollama_installed() -> bool:
+    return bool(config._which("ollama"))
+
+
+def ollama_models() -> list[str] | None:
+    """Models the local runner has pulled, or None if it is not reachable.
+
+    None and [] mean different things: not installed at all, versus installed
+    with nothing pulled. The menu says something different for each.
+    """
+    try:
+        # Short: this runs while a menu is being built, and a runner that is
+        # installed but not running must not stall the menu for seconds.
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags",
+                                    timeout=1.0) as r:
+            data = json.loads(r.read())
+        return sorted(m["name"] for m in data.get("models", []))
+    except (urllib.error.URLError, TimeoutError, OSError,
+            json.JSONDecodeError, KeyError):
+        return None
+
+
+def local_available() -> bool:
+    """Is on-device polishing actually usable right now?"""
+    models = ollama_models()
+    return bool(models)
+
+
 def _ollama(model: str, prompt: str, timeout: int) -> str | None:
     body = json.dumps({
         "model": model,

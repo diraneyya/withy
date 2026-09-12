@@ -34,9 +34,14 @@ cd withy
 ./install.sh
 ```
 
-Offer `./install.sh --no-llm` to skip Ollama (they can still use a hosted API or
-a local CLI for polishing, or turn polishing off), or `--model base.en` if disk
-is tight — much faster, noticeably less accurate, English only.
+**Ask before installing the on-device model.** `./install.sh --no-llm` skips
+Ollama entirely and saves a ~2 GB download; polishing can still use a local CLI
+or a hosted API, or be turned off. It can be added later from the menu, and
+removed from there too — nothing about this choice is permanent. See "Do they
+want on-device polishing?" below.
+
+`--model base.en` is the low-resource speech model — much faster, noticeably
+less accurate, English only.
 
 The installer is idempotent. If a step fails, fix the cause and re-run it; do
 not attempt the steps by hand.
@@ -101,6 +106,30 @@ vendor review and no network. Recommend a hosted API only if they say latency or
 quality matters more than locality — and say plainly that the transcript is sent
 to that provider.
 
+### Do they want on-device polishing at all?
+
+Ask; do not assume. It costs a ~2 GB model download plus a background runner
+that holds the model in GPU memory for five minutes after each use. Measured on
+an M2 Pro: the runner **idle** costs nothing (0.0% CPU, 22 MB), but it is
+resident during that five-minute window, so steady dictation means it is
+near-permanently loaded.
+
+Quality is the bigger consideration. On a real 75-word dictation, a 3B local
+model returned one wall of text while a hosted model returned three paragraphs
+and removed a stutter. A larger local model (7B and up) closes much of that gap
+if the machine has the memory.
+
+**Recommend it when** the machine must not send text anywhere and there is no
+company assistant installed. **Skip it when** either of the other two backends
+is available — a local CLI is usually better and costs nothing extra.
+
+Install or remove it later from the menu: **Polishing → On device →
+Install / Remove on-device polishing…**. Both open a Terminal so the download or
+uninstall is visible rather than hidden behind a menu item.
+
+Once installed, the menu lists every model that has been pulled, so
+`ollama pull qwen2.5:7b` is all it takes to offer a better one.
+
 ### Helping them set up "Use local CLI"
 
 This is often the best option on a **work machine**, because the company may
@@ -120,11 +149,20 @@ Then work out the right invocation. Common shapes:
 | Tool | Command to enter |
 |---|---|
 | Claude Code | `claude -p --model haiku` |
-| Claude via an internal wrapper | `aifx agent run claude -p` |
+| `aifx` (a corporate multi-agent proxy CLI) | `aifx agent run claude -p` |
 | `llm` (Simon Willison's) | `llm` |
 | Ollama, as a CLI | `ollama run qwen2.5:3b` |
 | GitHub Copilot CLI | `copilot -p` |
 | Gemini CLI | `gemini -p` |
+
+**If `aifx` is present**, it is a proxy over several agents and the available
+ones vary by organisation — enumerate them rather than guessing:
+
+```bash
+aifx agent list
+```
+
+Then use whichever the person prefers: `aifx agent run <agent> -p`.
 
 If you are not sure, **test it before saving**:
 
@@ -132,7 +170,18 @@ If you are not sure, **test it before saving**:
 echo "Add punctuation, return only the text: hello there how are you" | <their command>
 ```
 
-It must print the corrected sentence and nothing else — no banner, no spinner, no
+Withy can check this for you — this is the authoritative test, because it runs
+the command exactly as Withy will:
+
+```bash
+withy set-command "aifx agent run claude -p"
+withy test-command
+```
+
+It reports separately whether the command is missing, errored, or "worked" but
+printed a banner around the answer. Run it; do not assume.
+
+Done by hand, the command must print the corrected sentence and nothing else — no banner, no spinner, no
 "thinking" preamble. If it prints extra chrome, look for a quiet/print flag.
 
 **Ask about the model.** The default model is usually a large reasoning one, and
@@ -315,6 +364,25 @@ Polishing time depends entirely on the backend — see the table in Part 1.
 
 ### "Is my battery draining?"
 
-Plausibly. Ollama pins the model in GPU memory for five minutes after each use
-by default. Check with `ollama ps`. Switching polishing off, or to a hosted API,
-removes that entirely.
+Only if on-device polishing is installed and in use. Measured on an M2 Pro:
+
+```
+ollama daemon, no model loaded:   0.0% CPU, 22 MB
+after a dictation:                ~2.4 GB pinned on the GPU, for 5 minutes
+```
+
+So the idle runner is free; the five-minute window after each dictation is not.
+`ollama ps` shows whether a model is resident right now. Switching polishing to
+a CLI or a hosted API, or removing on-device polishing from the menu, ends it.
+
+### "Which models can I choose?"
+
+```bash
+withy models
+```
+
+Speech models are discovered on disk, so anything dropped into
+`$(brew --prefix)/share/whisper-cpp/` as `ggml-<name>.bin` is offered. On-device
+polishing offers whatever has been pulled — `ollama pull qwen2.5:7b` adds it to
+the menu. Both are switchable from the menu (**Speech model**, and **Polishing →
+On device**).

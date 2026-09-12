@@ -300,6 +300,21 @@ local function ellipsis(s, n)
 end
 
 -- ── menu ─────────────────────────────────────────────────────────────────
+-- Anything slow or fallible — installing a runner, downloading gigabytes —
+-- is handed to a visible Terminal rather than run silently behind a menu. The
+-- command itself comes from the CLI so it is defined in exactly one place.
+local function runVisibly(cmd)
+  hs.osascript.applescript(
+    'tell application "Terminal"\nactivate\ndo script '
+    .. ("%q"):format(cmd) .. '\nend tell')
+end
+
+local function cliJSON(args)
+  local out = hs.execute("'" .. cliPath() .. "' " .. args)
+  local ok, decoded = pcall(hs.json.decode, out or "")
+  return ok and decoded or nil
+end
+
 function obj:_buildMenu()
   local items = {}
   local key = keyById(setting("record_key", "rightalt"))
@@ -401,6 +416,44 @@ function obj:_buildMenu()
     }
   end
 
+  -- On-device polishing is OPTIONAL. If the runner or a model is missing the
+  -- entry offers to install it rather than appearing as a choice that silently
+  -- does nothing.
+  local inv = cliJSON("models --json") or {}
+  local localInfo = inv.local_ or inv["local"] or {}
+
+  local function onDeviceItem()
+    local models = localInfo.installed or {}
+    if not localInfo.usable then
+      local why = (not localInfo.runner_installed) and "not installed"
+          or (not localInfo.runner_running) and "not running"
+          or "no model downloaded"
+      return { title = "On device — " .. why, menu = {
+        { title = "Install on-device polishing…",
+          fn = function()
+            local cmd = hs.execute("'" .. cliPath() .. "' install-cmd local")
+            runVisibly((cmd or ""):gsub("%s+$", ""))
+          end },
+      } }
+    end
+    local sub = {}
+    for _, m in ipairs(models) do
+      sub[#sub + 1] = { title = m, checked = (m == localInfo.selected),
+        fn = function()
+          hs.execute("'" .. cliPath() .. "' set-model local " .. ("%q"):format(m))
+          saveSetting("postprocess", true); saveSetting("polish_backend", "local")
+        end }
+    end
+    sub[#sub + 1] = { title = "-" }
+    sub[#sub + 1] = { title = "Remove on-device polishing…",
+      fn = function()
+        local cmd = hs.execute("'" .. cliPath() .. "' install-cmd remove-local")
+        runVisibly((cmd or ""):gsub("%s+$", ""))
+      end }
+    return { title = "On device (" .. tostring(localInfo.selected) .. ")",
+             checked = polishOn and backend == "local", menu = sub }
+  end
+
   local cliCmd = setting("polish_command", {})
   local cliLabel = (#cliCmd > 0) and table.concat(cliCmd, " ") or "not set"
 
@@ -434,11 +487,7 @@ function obj:_buildMenu()
     { title = "Off — type exactly what was heard",
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
-    { title = "On device (" .. setting("llm_model", "qwen2.5:3b") .. ")",
-      checked = polishOn and backend == "local",
-      fn = function()
-        saveSetting("postprocess", true); saveSetting("polish_backend", "local")
-      end },
+    onDeviceItem(),
     { title = "Use local CLI — " .. cliLabel,
       checked = polishOn and backend == "command",
       fn = function()
@@ -461,6 +510,33 @@ function obj:_buildMenu()
     { title = "Edit polishing instructions…",
       fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end },
   } }
+
+  local speech = inv.speech or {}
+  local speechMenu = {}
+  for _, m in ipairs(speech.installed or {}) do
+    speechMenu[#speechMenu + 1] = {
+      title = m.name .. "  (" .. tostring(m.size_mb) .. " MB)",
+      checked = (m.name == speech.selected),
+      fn = function()
+        hs.execute("'" .. cliPath() .. "' set-model speech " .. ("%q"):format(m.name))
+      end }
+  end
+  speechMenu[#speechMenu + 1] = { title = "-" }
+  for name, meta in pairs(speech.downloadable or {}) do
+    local present = false
+    for _, m in ipairs(speech.installed or {}) do
+      if m.name == name then present = true end
+    end
+    if not present then
+      speechMenu[#speechMenu + 1] = {
+        title = "Download " .. name .. " (" .. meta[1] .. ") — " .. meta[2],
+        fn = function()
+          local cmd = hs.execute("'" .. cliPath() .. "' install-cmd speech " .. ("%q"):format(name))
+          runVisibly((cmd or ""):gsub("%s+$", ""))
+        end }
+    end
+  end
+  items[#items + 1] = { title = "Speech model", menu = speechMenu }
 
   items[#items + 1] = {
     title = "On-screen banner",

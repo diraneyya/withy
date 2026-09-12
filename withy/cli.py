@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import shlex
 import shutil
 import subprocess
@@ -305,6 +306,107 @@ def cmd_test_command(a) -> int:
     return 0
 
 
+# Whisper weights, largest first. Only these two are offered: the turbo model is
+# the accuracy/speed sweet spot on Apple Silicon and base.en is the low-resource
+# option. Anything else can be dropped into the folder by hand and will be found.
+SPEECH_DOWNLOADS = {
+    "large-v3-turbo": ("1.6 GB", "best accuracy"),
+    "base.en":        ("148 MB", "much faster, English only, less accurate"),
+}
+HF_URL = ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin")
+
+# A sensible first local model: small enough to download without thinking about
+# it, big enough to punctuate. Bigger ones are better and are the user's choice.
+DEFAULT_LOCAL_MODEL = "qwen2.5:3b"
+
+
+def cmd_models(a) -> int:
+    from . import transcribe as tr
+    speech = tr.speech_models()
+    local = fmt.ollama_models()
+    info = {
+        "speech": {
+            "installed": speech,
+            "selected": pathlib.Path(str(config.settings()["whisper_model"])).stem[5:],
+            "downloadable": SPEECH_DOWNLOADS,
+        },
+        "local": {
+            "runner_installed": fmt.ollama_installed(),
+            "runner_running": local is not None,
+            "installed": local or [],
+            "selected": config.settings()["llm_model"],
+            "usable": fmt.local_available(),
+        },
+    }
+    if a.json:
+        _emit(info)
+        return 0
+    print("speech models:")
+    for m in speech:
+        mark = "*" if m["name"] == info["speech"]["selected"] else " "
+        print(f"  {mark} {m['name']:18} {m['size_mb']} MB")
+    if not speech:
+        print("   (none found)")
+    print("on-device polishing:")
+    if not info["local"]["runner_installed"]:
+        print("   not installed  —  withy install-local")
+    elif local is None:
+        print("   installed but not running  —  ollama serve")
+    elif not local:
+        print("   no models pulled  —  ollama pull " + DEFAULT_LOCAL_MODEL)
+    else:
+        for m in local:
+            print(f"  {'*' if m == info['local']['selected'] else ' '} {m}")
+    return 0
+
+
+def cmd_set_model(a) -> int:
+    from . import transcribe as tr
+    if a.kind == "speech":
+        match = [m for m in tr.speech_models() if m["name"] == a.name]
+        if not match:
+            print(f"no speech model named {a.name!r}; see `withy models`",
+                  file=sys.stderr)
+            return 1
+        config.save_settings({"whisper_model": match[0]["path"]})
+    else:
+        installed = fmt.ollama_models() or []
+        if a.name not in installed:
+            print(f"{a.name!r} is not pulled; see `withy models`", file=sys.stderr)
+            return 1
+        config.save_settings({"llm_model": a.name})
+    print(f"{a.kind} model: {a.name}")
+    return 0
+
+
+def cmd_install_cmd(a) -> int:
+    """Print the shell command for a step the user should watch.
+
+    Installing a runner or downloading gigabytes is not something to run
+    silently behind a menu: it is slow, it can fail, and the output matters. The
+    menu opens a Terminal with this line rather than hiding it.
+    """
+    if a.what == "local":
+        model = a.name or DEFAULT_LOCAL_MODEL
+        parts = []
+        if not fmt.ollama_installed():
+            parts.append("brew install ollama")
+        parts.append("(pgrep -qx ollama || (nohup ollama serve >/dev/null 2>&1 &)); sleep 2")
+        parts.append(f"ollama pull {model}")
+        print(" && ".join(parts))
+    elif a.what == "remove-local":
+        installed = fmt.ollama_models() or []
+        parts = [f"ollama rm {m}" for m in installed]
+        parts.append("brew uninstall ollama")
+        print("; ".join(parts))
+    elif a.what == "speech":
+        name = a.name or "base.en"
+        d = pathlib.Path(str(config.settings()["whisper_model"])).parent
+        print(f'mkdir -p "{d}" && curl -fL --progress-bar '
+              f'"{HF_URL % name}" -o "{d}/ggml-{name}.bin"')
+    return 0
+
+
 def cmd_mics(a) -> int:
     mics = capture.list_mics()
     if a.json:
@@ -460,6 +562,20 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--json", action="store_true")
     q.add_argument("--timeout", type=int, default=90)
     q.set_defaults(fn=cmd_test_command)
+
+    q = sub.add_parser("models", help="speech and on-device models available")
+    q.add_argument("--json", action="store_true")
+    q.set_defaults(fn=cmd_models)
+
+    q = sub.add_parser("set-model")
+    q.add_argument("kind", choices=["speech", "local"])
+    q.add_argument("name")
+    q.set_defaults(fn=cmd_set_model)
+
+    q = sub.add_parser("install-cmd", help="print a command for the user to run")
+    q.add_argument("what", choices=["local", "remove-local", "speech"])
+    q.add_argument("name", nargs="?")
+    q.set_defaults(fn=cmd_install_cmd)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")

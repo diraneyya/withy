@@ -5,19 +5,23 @@
 # Safe to re-run: every step checks before it acts, and an existing Hammerspoon
 # configuration is appended to, never replaced.
 #
-#   ./install.sh                 install everything
-#   ./install.sh --no-llm        skip Ollama and the wording clean-up
+#   ./install.sh                 install dictation (no on-device model)
+#   ./install.sh --with-llm      also install Ollama for on-device polishing
 #   ./install.sh --model base.en use a smaller, faster Whisper model
 #
 set -euo pipefail
 
 MODEL_NAME="large-v3-turbo"
-WITH_LLM=1
+# On-device polishing is OPTIONAL and adds a ~2GB download plus a background
+# runner. It can be added or removed later from the menu, so the installer does
+# not assume it — see --with-llm.
+WITH_LLM=0
 LLM_MODEL="qwen2.5:3b"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-llm) WITH_LLM=0; shift ;;
+    --with-llm) WITH_LLM=1; shift ;;
     --model)  MODEL_NAME="$2"; shift 2 ;;
     --llm-model) LLM_MODEL="$2"; shift 2 ;;
     -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
