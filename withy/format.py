@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -44,6 +45,61 @@ from .log import log
 from .vocab import norm
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+def _api_key() -> str | None:
+    """The hosted-backend key.
+
+    Read from a file rather than settings.json, because settings.json is edited
+    by the menu and printed by `withy settings` — a secret does not belong in
+    something routinely dumped to a terminal. The file should be mode 600.
+    Falls back to the environment for people who already export it.
+    """
+    f = config.CONFIG_DIR / "openai-key"
+    if f.exists():
+        k = f.read_text(encoding="utf-8").strip()
+        if k:
+            return k
+    return os.environ.get("OPENAI_API_KEY") or os.environ.get("WITHY_OPENAI_KEY")
+
+
+def _openai(model: str, prompt: str, timeout: int) -> str | None:
+    """Hosted polishing. NOTE: this sends the transcript off the machine — the
+    one part of Withy that is not local. It is opt-in and off by default, and
+    the menu says so."""
+    key = _api_key()
+    if not key:
+        log("format: no API key — put one in ~/.config/withy/openai-key")
+        return None
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        OPENAI_URL, data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read())
+        return (data["choices"][0]["message"]["content"] or "").strip()
+    except urllib.error.HTTPError as e:
+        log(f"format: openai HTTP {e.code}: {e.read()[:200]!r}")
+    except (urllib.error.URLError, TimeoutError, KeyError,
+            IndexError, json.JSONDecodeError, OSError) as e:
+        log(f"format: openai call failed: {type(e).__name__}: {e}")
+    return None
+
+
+def _call_model(prompt: str) -> str | None:
+    """Dispatch to whichever polishing backend is configured."""
+    s = config.settings()
+    timeout = int(s["llm_timeout"])
+    if str(s.get("polish_backend", "local")) == "openai":
+        return _openai(str(s.get("openai_model", "gpt-4.1-mini")), prompt, timeout)
+    return _ollama(str(s["llm_model"]), prompt, timeout)
+
 
 # Chunk length is the single most important number in this file.
 #
@@ -402,9 +458,16 @@ def format_text(raw: str, terms: list[str], lang: str = "en") -> tuple[str, dict
         return raw, {"applied": False, "reason": f"language {lang}"}
     vocab = VOCAB_HINT.format(terms=", ".join(terms[:200])) if terms else ""
 
+    # The 40-word ceiling is a property of a 3B local model, not of the task.
+    # A hosted model holds the instruction far further, and fewer boundaries
+    # means fewer split quotes and better paragraphing.
+    size = int(s.get("chunk_words") or
+               (200 if str(s.get("polish_backend", "local")) == "openai"
+                else CHUNK_WORDS))
+
     pieces, reasons = [], []
-    for chunk in _chunks(raw):
-        resp = _ollama(model, PROMPT.format(vocab=vocab, text=chunk), timeout)
+    for chunk in _chunks(raw, size):
+        resp = _call_model(PROMPT.format(vocab=vocab, text=chunk))
         if resp is None:
             return raw, {"applied": False, "reason": "model unavailable"}
         # Small models like to wrap output in a code fence or preamble.

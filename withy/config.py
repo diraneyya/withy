@@ -94,6 +94,12 @@ DEFAULTS: dict = {
     "resolved_mic": "",
     "postprocess": True,
     "llm_model": "qwen2.5:3b",
+    # "local" keeps everything on the machine. "openai" sends the transcript to
+    # a hosted model — faster and better, but it is the one thing that leaves.
+    "polish_backend": "local",
+    "openai_model": "gpt-4.1-mini",
+    # Override the per-backend default chunk size; 0 = use the default.
+    "chunk_words": 0,
     "llm_timeout": 25,   # a stalled model must not hold up typing
     "min_clip_seconds": 0.3,
     # dB between loud and quiet frames below which a take is treated as having

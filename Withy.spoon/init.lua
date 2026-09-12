@@ -372,11 +372,26 @@ function obj:_buildMenu()
   end
   items[#items + 1] = { title = "Record key", menu = keyMenu }
 
-  items[#items + 1] = {
-    title = "Clean up wording",
-    checked = setting("postprocess", true),
-    fn = function() saveSetting("postprocess", not setting("postprocess", true)) end,
-  }
+  -- Polishing backend. The hosted option is the ONLY thing in Withy that sends
+  -- anything off the machine, so it says so in the menu rather than hiding
+  -- behind a setting name.
+  local polishOn = setting("postprocess", true)
+  local backend = setting("polish_backend", "local")
+  items[#items + 1] = { title = "Polishing", menu = {
+    { title = "Off — type exactly what was heard",
+      checked = not polishOn,
+      fn = function() saveSetting("postprocess", false) end },
+    { title = "On device (" .. setting("llm_model", "qwen2.5:3b") .. ")",
+      checked = polishOn and backend ~= "openai",
+      fn = function()
+        saveSetting("postprocess", true); saveSetting("polish_backend", "local")
+      end },
+    { title = "Hosted (" .. setting("openai_model", "gpt-4.1-mini") .. ") — leaves this Mac",
+      checked = polishOn and backend == "openai",
+      fn = function()
+        saveSetting("postprocess", true); saveSetting("polish_backend", "openai")
+      end },
+  } }
   local current = setting("icon", "willow")
   local iconMenu = {}
   for _, n in ipairs(iconNames()) do

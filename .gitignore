@@ -21,3 +21,7 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+
+# never commit a credential
+openai-key
+*.key
