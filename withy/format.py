@@ -205,9 +205,18 @@ CLI_CANDIDATES = [
 ]
 
 
+def configured_cli() -> list[str]:
+    return list(config.settings().get("polish_command") or [])
+
+
 def detect_cli() -> list[str] | None:
-    """The configured command, else the first available assistant, else None."""
-    configured = config.settings().get("polish_command") or []
+    """The configured command, else the first available assistant, else None.
+
+    A configured-but-missing command does NOT fall through to auto-detection:
+    silently running something other than what the user asked for is worse than
+    doing nothing, and the caller needs to be able to say which case it is.
+    """
+    configured = configured_cli()
     if configured:
         exe = config._which(configured[0])
         return [exe] + list(configured[1:]) if exe else None

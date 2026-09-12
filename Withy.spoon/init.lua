@@ -137,32 +137,11 @@ local PHASE = {
 
 local imageCache = {}
 
--- Every PNG in icons/ is an option. The folder is scanned rather than the names
--- hard-coded, so adding artwork means dropping a file in, not editing Lua.
-local function iconNames()
-  local names = {}
-  for f in hs.fs.dir(SPOON_DIR .. "icons/") do
-    local n = f:match("^(.+)%.png$")
-    if n then names[#names + 1] = n end
-  end
-  table.sort(names)
-  return names
-end
-
--- A macOS TEMPLATE image is a single-colour mask: the system recolours the whole
--- thing for light and dark menu bars and inverts it when a menu is open. That is
--- ideal for a plain icon and it is exactly what throws a coloured dot away.
---
--- So idle stays a template and behaves natively; the moment there is a phase to
--- show, the mark is drawn in real colour instead. The artwork is a black PNG, so
--- once it stops being a template it would vanish on a dark menu bar — it is
--- re-inked by compositing a fill with "sourceAtop", which paints only where the
--- image is already opaque.
-local function markImage(icon, phase, dark)
-  local key = icon .. ":" .. tostring(phase) .. ":" .. tostring(dark)
+local function markImage(phase, dark)
+  local key = tostring(phase) .. ":" .. tostring(dark)
   if imageCache[key] then return imageCache[key] end
 
-  local base = hs.image.imageFromPath(SPOON_DIR .. "icons/" .. icon .. ".png")
+  local base = hs.image.imageFromPath(SPOON_DIR .. "willow.png")
   if not base then return nil end
 
   local spec = PHASE[phase]
@@ -195,16 +174,15 @@ local function markImage(icon, phase, dark)
 end
 
 local function markFor(phase)
-  return markImage(setting("icon", "willow"), phase,
-                   hs.host.interfaceStyle() == "Dark")
+  return markImage(phase, hs.host.interfaceStyle() == "Dark")
 end
 
 -- Testing hook. The mark is built from several things that can each fail
 -- silently — a missing file, a phase table out of scope, a template flag that
 -- discards colour — and the only honest way to check it is to render what the
 -- REAL function returns, not a copy of its logic in a scratch file.
-function obj.debugMark(phase, icon, dark)
-  return markImage(icon or setting("icon", "willow"), phase, dark or false)
+function obj.debugMark(phase, dark)
+  return markImage(phase, dark or false)
 end
 
 function obj:_banner(phase)
@@ -347,8 +325,16 @@ function obj:_buildMenu()
           { title = "Copy unformatted", fn = function() self:_run({ "copy", tostring(idx), "--raw" }) end },
           { title = "Redo from audio", disabled = (rec.wav == nil),
             fn = function()
-              self:_setState("working")
-              self:_run({ "retry", tostring(idx) }, function() self:_setState("idle") end)
+              -- Same feedback as a live dictation: reprocessing runs the whole
+              -- pipeline and takes just as long, so it gets the same banner
+              -- rather than appearing to do nothing.
+              self.state = "working"
+              self:_phase("transcribing")
+              self:_followPhases()
+              self:_run({ "retry", tostring(idx) }, function()
+                self:_stopFollowing()
+                self:_setState("idle")
+              end)
             end },
         },
         fn = function() self:_run({ "copy", tostring(idx) }) end,
@@ -428,6 +414,19 @@ function obj:_buildMenu()
       (#cliCmd > 0) and cliLabel or "claude -p --model haiku", "Save", "Cancel")
     if btn ~= "Save" or not cmd or cmd == "" then return false end
     hs.execute("'" .. cliPath() .. "' set-command " .. ("%q"):format(cmd))
+
+    -- Exercise it immediately. A wrong command fails silently and safely —
+    -- polishing simply never happens — which is the right failure mode and a
+    -- terrible experience, because nothing tells you why. (Observed live: a
+    -- command saved as "claudee" left polishing quietly doing nothing.)
+    hs.alert.show("Withy — checking that command…", 2)
+    hs.task.new(cliPath(), function(code, out)
+      local ok, res = pcall(hs.json.decode, out or "")
+      local msg = (ok and res and res.message) or out or "No response."
+      hs.dialog.blockAlert(
+        (ok and res and res.ok) and "That command works" or "That command did not work",
+        msg, "OK")
+    end, { "test-command", "--json" }):start()
     return true
   end
 

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
+import time
 from pathlib import Path
 
 from . import capture, config, correct, format as fmt, history, inject, pipeline, vocab
@@ -224,6 +225,86 @@ def cmd_set_command(a) -> int:
     return 0
 
 
+PROBE_IN = "Add punctuation and return only the corrected text: hello there how are you"
+PROBE_WANT = ("hello", "there", "how", "are", "you")
+
+
+def cmd_test_command(a) -> int:
+    """Check that the configured CLI actually behaves like a polisher.
+
+    A wrong command fails silently and safely — polishing just never happens —
+    which is the right failure mode but a terrible experience, because nothing
+    tells you why. So the command is exercised once, when it is set.
+
+    Three things can be wrong and each is reported separately: the command does
+    not exist, it errors, or it 'works' but prints a banner / spinner / preamble
+    around the answer, which would be typed into the user's document.
+    """
+    argv = fmt.detect_cli()
+    if not argv:
+        configured = fmt.configured_cli()
+        if configured:
+            msg = (f"`{configured[0]}` is not installed, or not on PATH.\n\n"
+                   f"That is the command Withy has been told to use, so polishing "
+                   f"is doing nothing at all. Check the spelling, or set a "
+                   f"different one.")
+        else:
+            msg = ("No command-line assistant found. Set one with: "
+                   'withy set-command "claude -p"')
+        _emit({"ok": False, "reason": "not-found", "message": msg}) if a.json else print(msg)
+        return 1
+
+    t0 = time.time()
+    try:
+        res = subprocess.run(argv, input=PROBE_IN, capture_output=True,
+                             text=True, timeout=a.timeout)
+    except subprocess.TimeoutExpired:
+        msg = (f"`{' '.join(argv)}` produced nothing within {a.timeout}s. "
+               "It may be waiting for input, or the model is very slow.")
+        _emit({"ok": False, "reason": "timeout", "message": msg}) if a.json else print(msg)
+        return 1
+    except OSError as e:
+        msg = f"Could not run `{argv[0]}`: {e}"
+        _emit({"ok": False, "reason": "exec", "message": msg}) if a.json else print(msg)
+        return 1
+
+    took = time.time() - t0
+    out = res.stdout.strip()
+    if res.returncode != 0:
+        msg = (f"`{' '.join(argv)}` exited {res.returncode}.\n"
+               f"{(res.stderr or '').strip()[:300]}")
+        _emit({"ok": False, "reason": "exit", "message": msg}) if a.json else print(msg)
+        return 1
+    if not out:
+        msg = f"`{' '.join(argv)}` printed nothing."
+        _emit({"ok": False, "reason": "empty", "message": msg}) if a.json else print(msg)
+        return 1
+
+    low = out.lower()
+    missing = [w for w in PROBE_WANT if w not in low]
+    # A polisher returns roughly what it was given. Much more than that means
+    # banners, reasoning, or an explanation — all of which would be typed out.
+    noisy = len(out.split()) > 3 * len(PROBE_WANT)
+
+    if missing or noisy:
+        why = ("it did not echo the words back"
+               if missing else "it printed a lot of extra text around the answer")
+        msg = (f"`{' '.join(argv)}` ran in {took:.1f}s but {why}. "
+               "Withy needs a command that prints ONLY the corrected text — "
+               "look for a quiet or print-only flag.\n\nIt returned:\n"
+               + out[:300])
+        _emit({"ok": False, "reason": "noisy", "message": msg}) if a.json else print(msg)
+        return 1
+
+    msg = f"Works. `{' '.join(argv)}` replied in {took:.1f}s:\n{out[:200]}"
+    if took > 20:
+        msg += ("\n\nThat is slow for something that runs on every dictation. "
+                "If the tool has a fast-model flag, add it — measured elsewhere, "
+                "a default model took 76.7s where a fast one took 16.6s.")
+    _emit({"ok": True, "seconds": round(took, 1), "message": msg}) if a.json else print(msg)
+    return 0
+
+
 def cmd_mics(a) -> int:
     mics = capture.list_mics()
     if a.json:
@@ -374,6 +455,11 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("set-command", help="the local CLI used for polishing")
     q.add_argument("command", nargs="?", help='one string, e.g. "claude -p"')
     q.set_defaults(fn=cmd_set_command)
+
+    q = sub.add_parser("test-command", help="check the local CLI actually works")
+    q.add_argument("--json", action="store_true")
+    q.add_argument("--timeout", type=int, default=90)
+    q.set_defaults(fn=cmd_test_command)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")
