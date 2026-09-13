@@ -99,11 +99,11 @@ this check leaves polishing silently doing nothing.
 Other shapes: `--polish-backend off` (no polishing), `--with-llm` (also install a
 local LLM model), `--polish-backend openai` (then set a key).
 
-**Ask about a fast-model flag.** Most agents default to a large reasoning model,
-and polishing is a formatting task. Measured with Claude Code: the identical
-prompt took **76.7 s** on the default model and **16.6 s** with `--model haiku`.
-If the tool has such a flag, put it in the command — it is the difference
-between usable and not.
+**Do not guess at a fast-model flag.** A smaller model is not reliably faster
+through a CLI — measured on Claude Code with the same audio, `claude -p` took
+4.5-7.5 s while `claude -p --model haiku` took 33.5-51.9 s. Start with the plain
+command, and if it is slow, try a flag and **measure it** with
+`withy test-command`, which reports the elapsed time.
 
 ---
 
@@ -228,7 +228,7 @@ Then work out the right invocation. Common shapes:
 
 | Tool | Command to enter |
 |---|---|
-| Claude Code | `claude -p --model haiku` |
+| Claude Code | `claude -p` |
 | `aifx` (a corporate multi-agent proxy CLI) | `aifx agent run claude -p` |
 | `llm` (Simon Willison's) | `llm` |
 | Ollama, as a CLI | `ollama run qwen2.5:3b` |
@@ -264,11 +264,15 @@ printed a banner around the answer. Run it; do not assume.
 Done by hand, the command must print the corrected sentence and nothing else — no banner, no spinner, no
 "thinking" preamble. If it prints extra chrome, look for a quiet/print flag.
 
-**Ask about the model.** The default model is usually a large reasoning one, and
-polishing is a formatting task. Measured with Claude Code: the identical prompt
-took **76.7 s** on the default model and **16.6 s** with `--model haiku`. If
-their tool has a fast-model flag, use it — it is the difference between usable
-and not.
+**Do not assume a smaller model is faster.** It is tempting to pin a fast-model
+flag, and it can backfire: measured on Claude Code with the same audio,
+`claude -p` took 4.5-7.5 s while `claude -p --model haiku` took 33.5-51.9 s.
+Through a CLI, model choice interacts with process startup, caching and routing
+in ways that are not predictable from the model's size.
+
+So: try flags if you like, but **measure each one with `withy test-command`**,
+which reports the elapsed time, and keep whichever is actually fastest on that
+machine.
 
 Set it from the menu (**Polishing → Set local CLI command…**) or:
 

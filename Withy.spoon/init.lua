@@ -132,6 +132,17 @@ local BANNER = { w = 148, wide = 268, h = 30, margin = 10, radius = 8 }
 -- from what this machine has actually done (see slowAfter).
 local SLOW_DEFAULT = { transcribing = 20, formatting = 12, typing = 8 }
 
+-- Past this, the menu itself suggests changing backend rather than leaving the
+-- user to wonder whether that is simply how long it takes.
+local SLOW_POLISH_HINT = 30
+
+local BACKEND_LABEL = {
+  ["local"] = "the local LLM model",
+  command   = "the local CLI",
+  openai    = "the OpenAI API",
+  anthropic = "the Anthropic API",
+}
+
 -- One definition of each phase, used by both the menubar mark and the banner,
 -- so the colour you see in the corner of the screen is the colour on the tree.
 local PHASE = {
@@ -150,7 +161,11 @@ local function markImage(phase, dark)
   local base = hs.image.imageFromPath(SPOON_DIR .. "willow.png")
   if not base then return nil end
 
-  local spec = PHASE[phase]
+  -- The dot says ONE thing: the microphone is listening. It is deliberately
+  -- absent while transcribing and polishing — those are the machine working,
+  -- not the mic being open, and the banner already reports them. An indicator
+  -- that means two things means neither.
+  local spec = (phase == "recording") and PHASE[phase] or nil
   local ink = dark and { white = 1, alpha = 0.92 } or { white = 0, alpha = 0.85 }
 
   local c = hs.canvas.new({ x = 0, y = 0, w = GLYPH, h = GLYPH })
@@ -351,6 +366,20 @@ function obj:_buildMenu()
   local key = keyById(setting("record_key", "rightalt"))
 
   items[#items + 1] = { title = "Hold " .. key.label .. " to dictate", disabled = true }
+
+  -- If the last dictation's polishing was slow, say so HERE — at the top, where
+  -- the user is already looking — and name the option responsible. A number in
+  -- a stats command is no use to someone who just watched a spinner.
+  local last = readHistory(1)[1]
+  local lastFmt = last and last.meta and last.meta.format
+  if lastFmt and tonumber(lastFmt.seconds) and tonumber(lastFmt.seconds) > SLOW_POLISH_HINT then
+    items[#items + 1] = {
+      title = string.format("Polishing took %.0fs with %s — try another option",
+                            lastFmt.seconds, BACKEND_LABEL[lastFmt.backend] or lastFmt.backend),
+      disabled = true,
+    }
+  end
+
   items[#items + 1] = { title = "-" }
 
   -- History. Clicking an entry copies it; the submenu has the recovery paths.

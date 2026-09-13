@@ -195,12 +195,25 @@ def _http_text(req, timeout: int, who: str, extract) -> str | None:
 # takes a prompt on stdin and prints the answer on stdout — this is how a
 # machine that already has a licensed assistant can polish with no API key.
 #
-# `--model haiku` is not an optimisation, it is what makes this usable: the same
-# prompt took 76.7s on the default model and 16.6s on haiku, measured. Polishing
-# is a formatting task, not a reasoning one.
+# No model flag by default.
+#
+# An earlier version pinned `--model haiku` on the strength of one measurement:
+# 76.7s on the default model against 16.6s on haiku. That measurement was taken
+# while load_prompt() was broken — the transcript was landing inside the prompt
+# file's comment header, so the assistant wrote a DIAGNOSIS of the malformed
+# prompt instead of formatting anything. The 76.7s was the cost of that essay.
+#
+# Re-measured with the prompt fixed, on the same audio, the order reverses:
+#
+#     claude -p                  4.5s, 7.5s
+#     claude -p --model haiku   33.5s, 51.9s
+#
+# Two samples each, so treat the magnitude loosely — but not the direction. The
+# fast flag is left to the user, who can add one and check it with
+# `withy test-command`.
 CLI_CANDIDATES = [
-    ["claude", "-p", "--model", "haiku"],
-    ["aifx", "agent", "run", "claude", "-p", "--model", "haiku"],
+    ["claude", "-p"],
+    ["aifx", "agent", "run", "claude", "-p"],
     ["llm"],
 ]
 

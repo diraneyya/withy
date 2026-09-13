@@ -300,8 +300,9 @@ def cmd_test_command(a) -> int:
     msg = f"Works. `{' '.join(argv)}` replied in {took:.1f}s:\n{out[:200]}"
     if took > 20:
         msg += ("\n\nThat is slow for something that runs on every dictation. "
-                "If the tool has a fast-model flag, add it — measured elsewhere, "
-                "a default model took 76.7s where a fast one took 16.6s.")
+                "Try a different model flag if the tool has one — but measure it "
+                "with this command rather than assuming, because which model is "
+                "faster through a CLI is not predictable.")
     _emit({"ok": True, "seconds": round(took, 1), "message": msg}) if a.json else print(msg)
     return 0
 
