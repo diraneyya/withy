@@ -305,7 +305,10 @@ MIN_KEEP_RATIO_LONG = 0.5
 MIN_KEEP_RATIO_SHORT = 0.25
 RATIO_STRICT_ABOVE = 40
 
-PROMPT = """\
+# The instructions are defined ONCE. They used to exist twice — here and again
+# inside the sample written to the user's prompt file — which is how the two
+# drifted apart and how an edit to one silently missed the other.
+PROMPT_RULES = """\
 You format dictated speech into written text.
 
 Return the SAME WORDS the speaker said, with formatting applied. You may:
@@ -314,10 +317,14 @@ Return the SAME WORDS the speaker said, with formatting applied. You may:
   Quote ONLY the words being attributed to someone. Never wrap the whole
   text in quotation marks
 - turn a spoken enumeration into a numbered or bulleted list
-- delete filler words and false starts
-- apply spoken self-corrections: if the speaker retracts something ("no,
-  scratch that", "sorry, I mean"), delete the retracted text and keep the
-  correction, including the words of the retraction itself
+- break long passages into paragraphs at natural topic changes
+- delete disfluency: filler words, stutters, repeated words, and false starts
+  where the speaker is searching for a phrase and restarts it
+
+Do NOT delete text because the speaker said something like "scratch that" or
+"I mean". Keep those words and both versions, punctuated. Deciding that some
+deliberate speech was not meant is a judgement about intent, and it belongs to
+the speaker, not to you.
 
 You must NEVER:
 - add a word the speaker did not say
@@ -326,13 +333,29 @@ You must NEVER:
 - comment on the text or explain what you did
 - use markdown, bold, italics or asterisks of any kind
 
-Output the formatted text and nothing else.{vocab}
+Output the formatted text and nothing else."""
+
+PROMPT = PROMPT_RULES + """{vocab}
 
 Transcript:
 {text}"""
 
-PROMPT_FILE_SAMPLE = '# Withy polishing instructions\n#\n# This file replaces the instructions Withy sends with your dictation. Edit it\n# to suit how you write. Delete the file to go back to the default.\n#\n# Two ways to write it:\n#   - Plain instructions (like below). Withy appends your vocabulary list and\n#     the transcript itself.\n#   - A full template, if you include {text} — and optionally {vocab} — and\n#     want to control the whole thing.\n#\n# The safety check runs regardless of what you write here: any word in the\n# output that you did not say is reverted. You can change the STYLE, not the\n# guarantee.\n\nYou format dictated speech into written text.\n\nReturn the SAME WORDS the speaker said, with formatting applied. You may:\n- add punctuation, capitalisation, paragraph breaks\n- put quotation marks around speech the speaker is quoting or acting out.\n  Quote ONLY the words attributed to someone. Never wrap the whole text in\n  quotation marks\n- turn a spoken enumeration into a numbered or bulleted list\n- break long passages into paragraphs at natural topic changes\n- delete filler words and false starts\n- apply spoken self-corrections: if the speaker retracts something ("no,\n  scratch that", "sorry, I mean"), delete the retracted text and keep the\n  correction, including the words of the retraction itself\n\nYou must NEVER:\n- add a word the speaker did not say\n- replace a word with a different word\n- summarise, shorten, expand or rephrase anything\n- use markdown, bold, italics or asterisks of any kind\n- comment on the text or explain what you did\n\nOutput the formatted text and nothing else.\n'
+PROMPT_FILE_SAMPLE = """\
+# Withy polishing instructions
+#
+# This file replaces the instructions Withy sends with your dictation. Edit it
+# to suit how you write. Delete the file to go back to the default.
+#
+# Two ways to write it:
+#   - Plain instructions (like below). Withy appends your vocabulary list and
+#     the transcript itself.
+#   - A full template, if you include the transcript placeholder yourself.
+#
+# The safety check runs regardless of what you write here: any word in the
+# output that you did not say is reverted. You can change the STYLE, not the
+# guarantee.
 
+""" + PROMPT_RULES + "\n"
 
 VOCAB_HINT = """
 

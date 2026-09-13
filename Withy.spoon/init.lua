@@ -381,6 +381,7 @@ function obj:_setOffline(on, announce)
     cfg.offline = true
     cfg.backend_before_offline = cfg.polish_backend or "local"
     local inv = cliJSON("models --json") or {}
+
     local li = inv["local"] or {}
     if li.usable then
       cfg.polish_backend, cfg.postprocess = "local", true
@@ -402,7 +403,39 @@ function obj:_setOffline(on, announce)
   self:_phase(nil)
 end
 
+-- Benchmark results, unlike per-dictation timings, come from identical input —
+-- so they can honestly sit beside a model name.
+local function benchmarks()
+  local f = io.open(HOME .. "/.local/share/withy/benchmark/results.json", "r")
+  if not f then return {} end
+  local body = f:read("a"); f:close()
+  local ok, d = pcall(hs.json.decode, body)
+  return (ok and d) or {}
+end
+
 function obj:_buildMenu()
+  -- Defined FIRST: closures below reference these, and a local declared later
+  -- resolves as a nil global inside one defined earlier.
+  local bench = benchmarks()
+
+  local function benchSpeech(name)
+    for _, r in ipairs(bench.speech or {}) do
+      if r.model == name then return string.format("   %.1fs", r.seconds) end
+    end
+    return ""
+  end
+  local function benchPolish(match)
+    for _, r in ipairs(bench.polish or {}) do
+      if r.backend and r.backend:find(match, 1, true) then
+        return string.format("   %.1fs", r.seconds)
+      end
+    end
+    return ""
+  end
+  -- Defined FIRST: every closure below may reference these, and a local
+  -- declared later resolves as a nil global inside one defined earlier.
+  local bench = benchmarks()
+
   local items = {}
   local key = keyById(setting("record_key", "rightalt"))
 
@@ -523,6 +556,7 @@ function obj:_buildMenu()
     return {
       title = "Remote " .. label .. " API (" .. setting(modelKey, modelDefault) .. ") — "
               .. (have and "API key available" or "API key needed")
+              .. benchPolish(label .. " API")
               .. (offlineOn() and "   (sends text out — off in offline mode)" or ""),
       disabled = offlineOn(),
       checked = polishOn and backend == provider,
@@ -538,6 +572,7 @@ function obj:_buildMenu()
   -- entry offers to install it rather than appearing as a choice that silently
   -- does nothing.
   local inv = cliJSON("models --json") or {}
+
   self.stats = cliJSON("stats --json") or {}
   local localInfo = inv.local_ or inv["local"] or {}
 
@@ -619,12 +654,44 @@ function obj:_buildMenu()
   }
   items[#items + 1] = { title = "-" }
 
+  local speech = inv.speech or {}
+  local speechMenu = {}
+  for _, m in ipairs(speech.installed or {}) do
+    speechMenu[#speechMenu + 1] = {
+      title = m.name .. "  (" .. tostring(m.size_mb) .. " MB)" .. benchSpeech(m.name),
+      checked = (m.name == speech.selected),
+      fn = function()
+        hs.execute("'" .. cliPath() .. "' set-model speech " .. ("%q"):format(m.name))
+      end }
+  end
+  speechMenu[#speechMenu + 1] = { title = "-" }
+  speechMenu[#speechMenu + 1] = {
+    title = "Benchmark all models…",
+    fn = function() runVisibly("'" .. cliPath() .. "' benchmark") end }
+  speechMenu[#speechMenu + 1] = { title = "-" }
+  -- ipairs, not pairs: the order these are offered in is meaningful
+  for _, d in ipairs(speech.downloadable or {}) do
+    local present = false
+    for _, m in ipairs(speech.installed or {}) do
+      if m.name == d.name then present = true end
+    end
+    if not present then
+      speechMenu[#speechMenu + 1] = {
+        title = "Download " .. d.name .. " (" .. d.size .. ") — " .. d.note,
+        fn = function()
+          local cmd = hs.execute("'" .. cliPath() .. "' install-cmd speech " .. ("%q"):format(d.name))
+          runVisibly((cmd or ""):gsub("%s+$", ""))
+        end }
+    end
+  end
+  items[#items + 1] = { title = "Speech model", menu = speechMenu }
+
   items[#items + 1] = { title = "Polishing LLM", menu = {
     { title = "Off — type exactly what was heard",
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
     onDeviceItem(),
-    { title = "Local CLI — " .. cliLabel
+    { title = "Local CLI — " .. cliLabel .. benchPolish("local CLI")
               .. (offline and "   (sends text out — off in offline mode)" or ""),
       disabled = offline,
       checked = polishOn and backend == "command",
@@ -649,33 +716,6 @@ function obj:_buildMenu()
       fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end },
   } }
 
-  local speech = inv.speech or {}
-  local speechMenu = {}
-  for _, m in ipairs(speech.installed or {}) do
-    speechMenu[#speechMenu + 1] = {
-      title = m.name .. "  (" .. tostring(m.size_mb) .. " MB)",
-      checked = (m.name == speech.selected),
-      fn = function()
-        hs.execute("'" .. cliPath() .. "' set-model speech " .. ("%q"):format(m.name))
-      end }
-  end
-  speechMenu[#speechMenu + 1] = { title = "-" }
-  -- ipairs, not pairs: the order these are offered in is meaningful
-  for _, d in ipairs(speech.downloadable or {}) do
-    local present = false
-    for _, m in ipairs(speech.installed or {}) do
-      if m.name == d.name then present = true end
-    end
-    if not present then
-      speechMenu[#speechMenu + 1] = {
-        title = "Download " .. d.name .. " (" .. d.size .. ") — " .. d.note,
-        fn = function()
-          local cmd = hs.execute("'" .. cliPath() .. "' install-cmd speech " .. ("%q"):format(d.name))
-          runVisibly((cmd or ""):gsub("%s+$", ""))
-        end }
-    end
-  end
-  items[#items + 1] = { title = "Speech model", menu = speechMenu }
 
   items[#items + 1] = {
     title = "On-screen banner",

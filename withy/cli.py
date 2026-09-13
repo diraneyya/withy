@@ -485,6 +485,55 @@ def cmd_stats(a) -> int:
     return 0
 
 
+def cmd_benchmark(a) -> int:
+    from . import benchmark as bench
+    results = bench.load()
+    did = False
+
+    if a.what in ("speech", "all"):
+        from . import transcribe as tr
+        models = tr.speech_models()
+        if not models:
+            print("no speech models installed")
+        elif not bench._pick_reference():
+            print("no recording long enough to use as a reference yet — "
+                  "dictate something first")
+        else:
+            print(f"speech: {len(models)} model(s) on the same recording…")
+            results["speech"] = bench.speech(models)
+            did = True
+
+    if a.what in ("polish", "all"):
+        cands = bench._polish_candidates()
+        if not cands:
+            print("no polishing backends are usable right now")
+        else:
+            print(f"polishing: {len(cands)} option(s) on the same transcript…")
+            results["polish"] = bench.polish()
+            did = True
+
+    if did:
+        results["ran_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        bench.save(results)
+
+    if a.json:
+        _emit(results)
+        return 0
+
+    for row in results.get("speech", []):
+        print(f"\n  {row['model']:22} {row['seconds']:6.1f}s  "
+              f"{row['size_mb']:>5} MB  {row['words']} words")
+        print(f"      {row['text'][:150]}")
+    for row in results.get("polish", []):
+        state = "" if row["applied"] else "  (did not apply)"
+        print(f"\n  {row['backend']:34} {row['seconds']:6.1f}s{state}")
+        print(f"      {row['text'][:150]}")
+    if results.get("ran_at"):
+        print(f"\n  measured {results['ran_at']}. Same input for every row — "
+              "the times are comparable; judge the text yourself.")
+    return 0
+
+
 def cmd_mics(a) -> int:
     mics = capture.list_mics()
     if a.json:
@@ -658,6 +707,12 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("stats", help="how long polishing actually takes here")
     q.add_argument("--json", action="store_true")
     q.set_defaults(fn=cmd_stats)
+
+    q = sub.add_parser("benchmark", help="time every model on the same input")
+    q.add_argument("what", nargs="?", default="all",
+                   choices=["all", "speech", "polish"])
+    q.add_argument("--json", action="store_true")
+    q.set_defaults(fn=cmd_benchmark)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")
