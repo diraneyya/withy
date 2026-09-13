@@ -210,9 +210,16 @@ working — the menu shows which.
 *Input Monitoring*. Grant it, then menu → *Reload*. `withy diagnose` checks the
 rest of the install.
 
-**Pressing the key again cancelled my recording.** That is deliberate — a new
-press discards a take still in progress, so you can cancel and re-speak without
-a second key. A take you already *finished* is safe, and is in history.
+**What happens if I press the key again straight away?** Nothing is lost.
+Releasing the key commits that take; pressing again starts a new one while the
+previous is still transcribing. Press again within a fraction of a second of
+letting go and it treats it as one take, on the assumption you never really
+released.
+
+**Can I abandon a dictation I have started?** Not from the keyboard — there is
+no cancel key. Just stop talking and release: a take with no speech in it is
+discarded on its own, and anything transcribed is in history rather than typed
+somewhere you did not want it.
 
 ---
 

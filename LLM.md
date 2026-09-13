@@ -329,14 +329,14 @@ withy copy 0           # copy the most recent to the clipboard
 withy retype 0         # type it again, wherever the cursor is now
 ```
 
-### "I pressed the key again and lost my previous recording"
+### "I pressed the key again — did I lose the previous one?"
 
-Pressing the record key **starts a new take and discards any recording still in
-progress** — that is deliberate, it is how you cancel and re-speak without a
-second key.
+No. Releasing the key commits a take; pressing again starts a new one while the
+previous is still transcribing and polishing. Both complete.
 
-But a take that finished is not lost. Once you release the key, the audio is
-saved and the dictation is in history. If a *finished* take came out wrong:
+(Pressing again within a fraction of a second of releasing is treated as one
+continuous take, on the assumption the release was accidental.) Once you release the key, the audio is
+saved and the dictation is in history. If a take came out wrong:
 
 ```bash
 withy retry 0          # re-run the whole pipeline from the saved audio

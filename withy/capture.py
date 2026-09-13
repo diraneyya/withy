@@ -100,8 +100,14 @@ def is_recording() -> bool:
 
 
 def start() -> None:
-    """Begin recording. Any in-flight recording is discarded first, which is
-    what makes 'press again to re-speak' work without a separate cancel key."""
+    """Begin recording.
+
+    The cancel() first is a safety net, not a feature: push-to-talk means the
+    previous recorder has already been stopped by the key release, so this only
+    fires when a key-up was lost and a recorder was left running. Pressing the
+    key again does NOT discard a finished take — that take is already saved and
+    transcribing, which is what makes back-to-back dictation work.
+    """
     cancel()
     config.ensure_dirs()
     config.CURRENT_WAV.unlink(missing_ok=True)
