@@ -113,6 +113,14 @@ end
 -- and the hanging strands visible. Switchable from the menu.
 local GLYPH = 22
 
+-- The artwork does not fill the glyph box. Menu bar icons are mostly line art,
+-- and this willow is a dense silhouette — at full size it carries far more ink
+-- than its neighbours and reads as heavier even though the box is the same.
+-- Measured ink (mean alpha over the box): 0.383 at full size, 0.286 at 0.85,
+-- against well under 0.25 for typical line glyphs. 0.85 is the point where the
+-- weight matches without the hanging strands closing up.
+local ART_SCALE = 0.85
+
 -- Derived from this file's own path rather than hs.spoons.resourcePath(),
 -- which only resolves while the Spoon is being loaded and returns nil
 -- afterwards — so a lazily-rendered icon could not find its own artwork.
@@ -171,10 +179,12 @@ local function markImage(phase, dark)
   local c = hs.canvas.new({ x = 0, y = 0, w = GLYPH, h = GLYPH })
   -- hs.image:size() returns { w = , h = } — NOT width/height.
   local size = base:size()
-  local w = size.w / size.h * GLYPH
+  local h = GLYPH * ART_SCALE
+  local w = size.w / size.h * h
   c:appendElements({ type = "image", image = base,
                      imageScaling = "scaleProportionally",
-                     frame = { x = (GLYPH - w) / 2, y = 0, w = w, h = GLYPH } })
+                     frame = { x = (GLYPH - w) / 2, y = (GLYPH - h) / 2,
+                               w = w, h = h } })
 
   if spec then
     c:appendElements({ type = "rectangle", action = "fill", fillColor = ink,
