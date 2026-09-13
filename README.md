@@ -235,16 +235,15 @@ remote polishing backend.
 
 A **withy** is a willow branch cut for weaving.
 
-This was written in a garden in Almere Buiten, in front of a heap of willow
-branches a neighbour had cut down the day before. The tree is gone now — the one
-whose long strands you could lie under on summer nights by a fire and watch
-moving against the sky. What is left is a pile of cut branches and the question
-of what to do with them.
+Withy was written in a garden in Almere Buiten, beside a heap of willow branches
+a neighbour had cut down the day before. The tree itself is gone — the one whose
+long strands used to move against the sky above a summer fire. What remains is a
+pile of rods and the question of what to do with them.
 
-The traditional answer is that you weave them. Withies become baskets, fences,
-screens; the tree goes on being useful in another shape. That seemed like a fair
-description of a tool that takes speech — which is loose, disordered, and
-disappears the moment it is made — and weaves it into something that holds.
+The traditional answer is to weave them. Withies become baskets, fences and
+screens; the tree goes on being useful in another shape. It is a fair
+description of a tool that takes speech — loose, disordered, and gone the moment
+it is made — and weaves it into something that holds.
 
 It is also, plainly, a free local alternative to the dictation tools people pay
 per seat for. But it is named after the tree, not after them.
