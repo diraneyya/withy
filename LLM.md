@@ -385,6 +385,21 @@ format: reverted 1 substitution(s), kept formatting
 The guarantee is that **no word you did not say can appear in the output**. A
 substituted word is reverted; the formatting around it is kept.
 
+### "It deleted my 'um' but kept 'no, scratch that'"
+
+That is the rule, not a bug. Withy removes **disfluency** — filler words,
+stutters, repeated words, and false starts where someone is visibly searching
+for a phrase — because none of that was meant as content.
+
+It does **not** delete text because you said "scratch that" or "I mean". Those
+are deliberate speech, and deciding they were not meant is a judgement about
+intent that belongs to the speaker. It is also the one edit the safety check
+cannot catch: an invented word is refused and a substituted word reverted, but
+deletions have to be allowed or filler removal would be impossible.
+
+If someone wants retractions applied, that is one line in their own
+instructions — menu → *Edit polishing instructions…*.
+
 ### "Can I change how it writes?"
 
 Yes — menu → **Edit polishing instructions…** (`~/.config/withy/prompt.md`).
@@ -456,6 +471,25 @@ withy purge 7     # keep the last week
 
 Exclude those paths from backups if policy requires it.
 
+### "The banner said 'taking longer than usual'"
+
+A step overran, and the banner says so rather than leaving a spinner that looks
+identical to a hang. The threshold is that backend's own median on this machine
+once there is a history for it, and a default before that.
+
+It is information, not an error — the dictation is still running and will still
+be typed.
+
+### "The menu says polishing took 40 seconds"
+
+That hint appears at the top of the menu when the last dictation's polishing
+went past 30 seconds, and it names the option responsible. Something is slow
+enough to be worth changing: benchmark the alternatives (above) and switch.
+
+Common causes: a local model too large for the machine, a CLI whose default
+model does heavy reasoning on what is only a formatting task, or a slow network
+on a remote API.
+
 ### "It's slow"
 
 Transcription loads a 1.6 GB model, twice if the language is auto-detected.
@@ -466,6 +500,35 @@ withy settings language=en
 ```
 
 Polishing time depends entirely on the backend — see the table in Part 1.
+
+### "How do I add or remove an API key?"
+
+Menu → **Polishing LLM**. The entry reads *API key needed* until one is stored
+and *API key available* afterwards, and clicking an option without a key prompts
+for one. There are explicit *Enter…* and *Remove…* items too.
+
+```bash
+withy keys                # which providers are configured
+withy set-key openai      # reads the key from stdin
+withy remove-key openai
+```
+
+Keys live at `~/.config/withy/<provider>-key`, mode 600, never in
+`settings.json`. Removing one warns if an exported environment variable would
+still supply it.
+
+### "How do I install or remove the local LLM model?"
+
+Menu → **Polishing LLM → Local LLM model**. The entry states which piece is
+missing — runner not installed, runner not running, or no model downloaded — and
+offers the matching action. Both install and remove open a Terminal, because a
+multi-gigabyte download or an uninstall should be visible rather than hidden
+behind a menu item.
+
+Removing lists exactly what it will delete and asks for confirmation first.
+
+Nothing about this choice is permanent, and nothing else depends on it:
+dictation works without it, and the other polishing options are unaffected.
 
 ### "Is my battery draining?"
 
@@ -479,6 +542,43 @@ after a dictation:                ~2.4 GB pinned on the GPU, for 5 minutes
 So the idle runner is free; the five-minute window after each dictation is not.
 `ollama ps` shows whether a model is resident right now. Switching polishing to
 a CLI or a hosted API, or removing on-device polishing from the menu, ends it.
+
+### "Which speech model / polishing option should I use?"
+
+Measure, do not guess:
+
+```bash
+withy benchmark          # both
+withy benchmark speech   # speech models only
+withy benchmark polish   # polishing options only
+```
+
+Or from the menu: **Speech model → Benchmark speech models…** and
+**Polishing LLM → Benchmark polishing options…**.
+
+Every model gets the **same input**, which is what makes the times comparable —
+unlike the per-dictation timings elsewhere, where each dictation is different
+speech of a different length. Results then appear beside each model in the menu.
+
+The speech reference is one of the user's **own recordings**, kept aside the
+first time a benchmark runs: their voice, microphone and room. The polishing
+reference is a fixed transcript containing filler, a stutter, a retraction,
+reported speech and an enumeration.
+
+**It does not score quality, and says so.** It prints every transcript and every
+polished result in full so a person can judge that part themselves. Faster is
+not better: in one real run the faster backend also ignored an instruction to
+drop filler that the slower one obeyed. Read the text, not just the times.
+
+### "Can I try the same dictation with different settings?"
+
+Yes, and this is the honest way to compare them. The audio is kept, so:
+menu → **Recent dictations** → **Redo from audio**, after changing the speech
+model, the polishing backend, or the instructions.
+
+Same recording, one variable changed — which is the only way to tell whether a
+setting actually helped rather than the dictation simply being easier. Tools
+that discard the audio cannot do this.
 
 ### "Which models can I choose?"
 
