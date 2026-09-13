@@ -362,14 +362,10 @@ def _ollama(model: str, prompt: str, timeout: int) -> str | None:
     }).encode("utf-8")
     req = urllib.request.Request(OLLAMA_URL, data=body,
                                  headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read()).get("response", "").strip()
-    except urllib.error.URLError as e:
-        log(f"format: ollama unreachable ({e}) — is `ollama serve` running?")
-    except (TimeoutError, json.JSONDecodeError, OSError) as e:
-        log(f"format: ollama call failed: {type(e).__name__}: {e}")
-    return None
+    # HTTPError subclasses URLError, so catching URLError first reports every
+    # HTTP response as "unreachable" and throws away the body — which is where
+    # the runner says what is actually wrong ("model 'x' not found").
+    return _http_text(req, timeout, "ollama", lambda d: d.get("response", ""))
 
 
 _EMPHASIS_RE = re.compile(r"(?<!\w)(\*\*?|__)(?=\S)(.+?)(?<=\S)\1(?!\w)", re.S)

@@ -411,14 +411,76 @@ def cmd_install_cmd(a) -> int:
         print(" && ".join(parts))
     elif a.what == "remove-local":
         installed = fmt.ollama_models() or []
-        parts = [f"ollama rm {m}" for m in installed]
-        parts.append("brew uninstall ollama")
+        # Deleting models is not undoable without re-downloading gigabytes, and
+        # this command is reached by clicking a menu item — so it asks first,
+        # in the Terminal where the user can see exactly what it will remove.
+        listing = " ".join(installed) or "(none)"
+        confirm = (f'echo "This will delete: {listing}"; '
+                   f'echo "and uninstall the local model runner."; '
+                   f'read -p "Type yes to continue: " a; [ "$a" = yes ] || exit 1')
+        parts = [confirm]
+        parts += [f"ollama rm {m}" for m in installed]
+        parts.append("brew uninstall ollama || true")
         print("; ".join(parts))
     elif a.what == "speech":
         name = a.name or "base.en"
         d = pathlib.Path(str(config.settings()["whisper_model"])).parent
         print(f'mkdir -p "{d}" && curl -fL --progress-bar '
               f'"{HF_URL % name}" -o "{d}/ggml-{name}.bin"')
+    return 0
+
+
+def _median(xs: list[float]) -> float:
+    xs = sorted(xs)
+    n = len(xs)
+    if not n:
+        return 0.0
+    m = n // 2
+    return xs[m] if n % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+def polish_stats() -> dict:
+    """How long each polishing backend has actually taken, on this machine.
+
+    Published measurements are somebody else's laptop, somebody else's network
+    and somebody else's dictation length. This is the user's own history, which
+    is the only figure that can honestly answer "is this one slow for me".
+    """
+    by: dict[str, list[tuple[float, int]]] = {}
+    for r in history.recent():
+        f = (r.get("meta") or {}).get("format") or {}
+        secs, backend = f.get("seconds"), f.get("backend")
+        if backend and backend != "off" and isinstance(secs, (int, float)) and secs > 0:
+            by.setdefault(backend, []).append((float(secs), int(r.get("meta", {}).get("words") or 0)))
+    out = {}
+    for backend, rows in by.items():
+        secs = [x for x, _ in rows]
+        words = [w for _, w in rows if w]
+        out[backend] = {
+            "runs": len(secs),
+            "median": round(_median(secs), 1),
+            "slowest": round(max(secs), 1),
+            # normalised, because a 200-word dictation is not slow for the same
+            # reason a backend is
+            "median_per_100_words": round(
+                _median([s / w * 100 for s, w in rows if w]), 1) if words else None,
+        }
+    return out
+
+
+def cmd_stats(a) -> int:
+    stats = polish_stats()
+    if a.json:
+        _emit(stats)
+        return 0
+    if not stats:
+        print("no polished dictations yet")
+        return 0
+    print(f"  {'backend':12} {'runs':>5} {'typical':>9} {'slowest':>9}  per 100 words")
+    for backend, v in sorted(stats.items(), key=lambda kv: kv[1]["median"]):
+        per = f"{v['median_per_100_words']}s" if v["median_per_100_words"] else "-"
+        print(f"  {backend:12} {v['runs']:>5} {v['median']:>8.1f}s "
+              f"{v['slowest']:>8.1f}s  {per:>9}")
     return 0
 
 
@@ -591,6 +653,10 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("what", choices=["local", "remove-local", "speech"])
     q.add_argument("name", nargs="?")
     q.set_defaults(fn=cmd_install_cmd)
+
+    q = sub.add_parser("stats", help="how long polishing actually takes here")
+    q.add_argument("--json", action="store_true")
+    q.set_defaults(fn=cmd_stats)
 
     q = sub.add_parser("mics")
     q.add_argument("--json", action="store_true")

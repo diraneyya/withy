@@ -124,7 +124,13 @@ local SPOON_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)")) or ""
 -- at the text field, not the menu bar. So there is also a small on-screen
 -- banner — deliberately at a screen EDGE and small, because a large centred one
 -- ends up covering the very field being dictated into.
-local BANNER = { w = 148, h = 30, margin = 10, radius = 8 }
+local BANNER = { w = 148, wide = 268, h = 30, margin = 10, radius = 8 }
+
+-- How long a phase may run before the banner says so. A step that is merely
+-- slow looks identical to one that has hung, and the honest fix is to say which
+-- it is. Defaults are a floor; once there is history, the real threshold comes
+-- from what this machine has actually done (see slowAfter).
+local SLOW_DEFAULT = { transcribing = 20, formatting = 12, typing = 8 }
 
 -- One definition of each phase, used by both the menubar mark and the banner,
 -- so the colour you see in the corner of the screen is the colour on the tree.
@@ -185,17 +191,19 @@ function obj.debugMark(phase, dark)
   return markImage(phase, dark or false)
 end
 
-function obj:_banner(phase)
+function obj:_banner(phase, slow)
   if not setting("banner", true) then return end
   local spec = PHASE[phase]
   if not spec then
     if self.canvas then self.canvas:hide() end
     return
   end
-  -- Re-derive the frame each time so the banner follows the active screen.
+  -- Re-derive the frame each time so the banner follows the active screen, and
+  -- widen it when there is more to say.
+  local width = slow and BANNER.wide or BANNER.w
   local scr = hs.screen.mainScreen():frame()
-  local frame = { x = scr.x + scr.w - BANNER.w - BANNER.margin,
-                  y = scr.y + BANNER.margin, w = BANNER.w, h = BANNER.h }
+  local frame = { x = scr.x + scr.w - width - BANNER.margin,
+                  y = scr.y + BANNER.margin, w = width, h = BANNER.h }
   if not self.canvas then
     self.canvas = hs.canvas.new(frame)
     self.canvas:level(hs.canvas.windowLevels.overlay)
@@ -206,7 +214,7 @@ function obj:_banner(phase)
         fillColor = { red = 0, green = 0, blue = 0, alpha = 0.74 } },
       { type = "circle", center = { x = 17, y = 15 }, radius = 5,
         action = "fill", fillColor = PHASE.recording.dot },
-      { type = "text", frame = { x = 30, y = 6, w = BANNER.w - 36, h = 19 },
+      { type = "text", frame = { x = 30, y = 6, w = BANNER.wide - 36, h = 19 },
         text = "", textSize = 12.5,
         textColor = { white = 1, alpha = 0.95 } }
     )
@@ -214,7 +222,8 @@ function obj:_banner(phase)
     self.canvas:frame(frame)
   end
   self.canvas[2].fillColor = spec.dot
-  self.canvas[3].text = spec.text
+  self.canvas[3].text = spec.text .. (slow and " — taking longer than usual" or "")
+  self.canvas[3].frame = { x = 30, y = 6, w = width - 36, h = 19 }
   self.canvas:show()
 end
 
@@ -237,7 +246,23 @@ function obj:_phase(phase)
     local ok, img = pcall(markFor, phase)
     if ok and img then self.menu:setIcon(img) else self.menu:setTitle("~") end
   end
-  self:_banner(phase)
+  if phase then self.state = phase end
+  self.phaseAt = phase and hs.timer.secondsSinceEpoch() or nil
+  self.phaseSlowAt = phase and self:_slowAfter(phase) or nil
+  self:_banner(phase, false)
+end
+
+-- The threshold for "this is taking a while" should be what is unusual FOR THIS
+-- MACHINE, not a number from somebody else's laptop. Once a backend has a
+-- history, use three times its median; before that, fall back to a default.
+function obj:_slowAfter(phase)
+  local floor = SLOW_DEFAULT[phase] or 15
+  if phase ~= "formatting" then return floor end
+  local st = self.stats and self.stats[setting("polish_backend", "local")]
+  if st and st.median and st.runs and st.runs >= 3 then
+    return math.max(floor, st.median * 3)
+  end
+  return floor
 end
 
 -- While the CLI is working it publishes its phase to a state file; follow it so
@@ -253,7 +278,13 @@ function obj:_followPhases()
     -- Ignore "recording": the state file still holds it from the recorder that
     -- has only just been asked to stop, so honouring it here flips the banner
     -- back and forth between Recording and Transcribing on every key release.
-    if st ~= "recording" and PHASE[st] then self:_phase(st) end
+    if st ~= "recording" and PHASE[st] and st ~= self.state then
+      self.state = st
+      self:_phase(st)
+    elseif self.phaseAt and self.phaseSlowAt
+           and (hs.timer.secondsSinceEpoch() - self.phaseAt) > self.phaseSlowAt then
+      self:_banner(self.state, true)
+    end
   end)
 end
 
@@ -402,11 +433,19 @@ function obj:_buildMenu()
     return true
   end
 
+  -- What a backend actually costs on THIS machine, from this user's own
+  -- dictations. A published benchmark cannot answer "is this slow for me".
+  local function timing(backend)
+    local st = self.stats and self.stats[backend]
+    if not st or not st.runs or st.runs < 2 then return "" end
+    return string.format("  ~%gs", st.median)
+  end
+
   local function remoteItem(provider, label, modelKey, modelDefault)
     local have = hasKey(provider)
     return {
       title = "Remote " .. label .. " API (" .. setting(modelKey, modelDefault) .. ") — "
-              .. (have and "API key available" or "API key needed"),
+              .. (have and "API key available" or "API key needed") .. timing(provider),
       checked = polishOn and backend == provider,
       fn = function()
         if not hasKey(provider) and not askKey(provider, label) then return end
@@ -420,6 +459,7 @@ function obj:_buildMenu()
   -- entry offers to install it rather than appearing as a choice that silently
   -- does nothing.
   local inv = cliJSON("models --json") or {}
+  self.stats = cliJSON("stats --json") or {}
   local localInfo = inv.local_ or inv["local"] or {}
 
   local function onDeviceItem()
@@ -458,7 +498,8 @@ function obj:_buildMenu()
         local cmd = hs.execute("'" .. cliPath() .. "' install-cmd remove-local")
         runVisibly((cmd or ""):gsub("%s+$", ""))
       end }
-    return { title = "Local LLM model (" .. tostring(localInfo.selected) .. ")",
+    return { title = "Local LLM model (" .. tostring(localInfo.selected) .. ")"
+                     .. timing("local"),
              checked = polishOn and backend == "local", menu = sub }
   end
 
@@ -496,7 +537,7 @@ function obj:_buildMenu()
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
     onDeviceItem(),
-    { title = "Local CLI — " .. cliLabel,
+    { title = "Local CLI — " .. cliLabel .. timing("command"),
       checked = polishOn and backend == "command",
       fn = function()
         if #setting("polish_command", {}) == 0 and not askCommand() then return end

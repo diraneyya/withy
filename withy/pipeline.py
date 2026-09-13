@@ -10,6 +10,7 @@ stage's text, and the worst case is that the raw transcript gets typed.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from . import capture, config, correct, format as fmt, history, inject, speech, transcribe, vocab
@@ -31,7 +32,9 @@ def process(wav: Path, type_it: bool = True) -> dict:
         return {}
 
     set_state("transcribing")
+    t0 = time.time()
     raw, lang = transcribe.transcribe(wav, vocab.whisper_prompt(terms))
+    transcribe_secs = time.time() - t0
     if not raw:
         log(f"no speech in {wav}")
         set_state("idle")
@@ -43,16 +46,28 @@ def process(wav: Path, type_it: bool = True) -> dict:
     post = bool(s["postprocess"])
     corrected, meta = correct.clean(raw, terms, disfluency=not post)
 
+    format_secs = 0.0
     if post:
         set_state("formatting")
+        t0 = time.time()
         final, fmeta = fmt.format_text(corrected, terms, lang)
+        format_secs = time.time() - t0
     else:
         final, fmeta = corrected, {"applied": False, "reason": "disabled"}
 
-    meta.update({"lang": lang, "format": fmeta})
+    # Timings are recorded on every dictation, not just when something is being
+    # debugged. They are what lets the app tell the user how long a backend
+    # actually takes ON THEIR machine, instead of asking them to guess from a
+    # table of somebody else's measurements.
+    fmeta["seconds"] = round(format_secs, 2)
+    fmeta["backend"] = str(s["polish_backend"]) if post else "off"
+    meta.update({"lang": lang, "format": fmeta,
+                 "transcribe_seconds": round(transcribe_secs, 2),
+                 "words": len(raw.split())})
     rec = history.append(raw, corrected, final, meta, wav)
     log(f"[{lang}] {len(raw.split())}w raw -> {len(final.split())}w final "
-        f"(format={fmeta.get('applied')})")
+        f"(transcribe {transcribe_secs:.1f}s, "
+        f"{fmeta.get('backend')} polish {format_secs:.1f}s)")
 
     if type_it:
         # Clear the indicator BEFORE typing, so it can never sit over the field
