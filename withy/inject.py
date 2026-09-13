@@ -106,7 +106,15 @@ def inject(text: str) -> bool:
     if not text:
         return False
     try:
-        return _inject_hammerspoon(text) if HS_BIN else _inject_osascript(text)
+        # Prefer Hammerspoon: it is Unicode- and RTL-safe and its persistent
+        # process can restore the clipboard after we exit. But it needs the ipc
+        # message port loaded; if that call fails — a fresh Hammerspoon without
+        # hs.ipc, or a reload in flight — fall back to osascript rather than
+        # silently typing nothing. Before this, osascript was gated only on `hs`
+        # being ABSENT, so it never ran when the hs path merely failed.
+        if HS_BIN and _inject_hammerspoon(text):
+            return True
+        return _inject_osascript(text)
     except Exception as e:                                   # noqa: BLE001
         log(f"inject raised: {type(e).__name__}: {e}")
         return False

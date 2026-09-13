@@ -153,6 +153,26 @@ code-generated candidate set** — never to producing text.
 
 ## Injection
 
+### Nothing types, but copy/paste of the dictation works
+
+**Symptom:** every dictation reaches history and the menubar copy actions work,
+but nothing is ever typed into the focused app. The log shows
+`inject(hs) FAILED rc=69: ... can't access Hammerspoon message port`.
+**Cause:** `inject.py` prefers the Hammerspoon path whenever the `hs` binary
+exists, injecting through `hs -c ...`. That command reaches Hammerspoon over its
+ipc message port, which exists only once `hs.ipc` has been `require`d in the
+running config. A freshly-installed Hammerspoon has **not** loaded it, so the
+`hs` binary is present, the code takes the Hammerspoon path, and every call fails
+before a single keystroke is posted. The `osascript` fallback never runs because
+it is gated on the `hs` binary being *absent*, not on the call failing. It reads
+as a permissions problem (recording works, typing does not) but Accessibility is
+fine; the channel is simply not open.
+**Fix:** load the module where Withy loads. Put `require("hs.ipc")` at the top of
+the Spoon's `start()`, so the port is a guarantee of running Withy rather than
+something the user must add to their own `init.lua`. Defence in depth: fall back
+to the `osascript` path when the Hammerspoon call *fails*, not only when `hs` is
+missing.
+
 ### Long dictations arrive truncated
 
 **Symptom:** the first ~2,000 characters land, the rest vanishes. No error.

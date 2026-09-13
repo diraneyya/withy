@@ -842,6 +842,16 @@ end
 
 -- ── lifecycle ────────────────────────────────────────────────────────────
 function obj:start()
+  -- Withy injects text by shelling out to `hs -c ...` (see inject.py). That
+  -- command reaches this process over the ipc message port, which exists only
+  -- once hs.ipc has been loaded. A freshly-installed Hammerspoon has not loaded
+  -- it, so without this line every injection fails with "can't access
+  -- Hammerspoon message port" (rc=69) and the text is silently left in history
+  -- while the clipboard actions still work — the exact symptom that looks like
+  -- a permissions problem but is not. Loading it here makes the port a
+  -- guarantee of running Withy, not something the user must add to init.lua.
+  require("hs.ipc")
+
   self.menu = hs.menubar.new()
   if self.menu then
     self:_setState("idle")
