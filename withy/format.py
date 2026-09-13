@@ -211,9 +211,13 @@ def _http_text(req, timeout: int, who: str, extract) -> str | None:
 # Two samples each, so treat the magnitude loosely — but not the direction. The
 # fast flag is left to the user, who can add one and check it with
 # `withy test-command`.
+# Auto-detection is a fallback only, and deliberately short: the right command
+# on a given machine is usually something this list has never heard of, which is
+# why the installer asks an assistant to work it out and pass it in.
 CLI_CANDIDATES = [
     ["claude", "-p"],
-    ["aifx", "agent", "run", "claude", "-p"],
+    ["gemini", "-p"],
+    ["codex", "-p"],
     ["llm"],
 ]
 

@@ -40,7 +40,7 @@ none of that. So you do the discovery and the judgement; it does the execution.
 ### 1. Find what is installed
 
 ```bash
-for c in claude aifx llm ollama codex cursor-agent copilot gemini q; do
+for c in claude llm ollama codex cursor-agent copilot gemini q; do
   command -v "$c" >/dev/null && echo "found: $c"
 done
 ```
@@ -49,23 +49,41 @@ Also use what you already know. If you are running inside a corporate assistant,
 you likely know which tools that organisation provides — say so rather than
 making the user hunt.
 
-### 2. Expand multiplexers into concrete choices
+### 2. Use what you know, and measure what you find
 
-Some tools are a front end for several agents. `aifx` is one (a corporate proxy
-CLI for multiple agents), so `aifx` alone is not an answer — enumerate:
+The probe above only finds names you thought to look for. **You very likely know
+about command-line AI assistants that are not in that list** — ones specific to
+this organisation, ones released after that list was written, ones you are
+running under right now. Use that knowledge; it is the main reason a human is
+not doing this step.
+
+Two things to work out for each candidate:
+
+**The non-interactive form.** Withy needs a command that takes a prompt on
+standard input and prints the answer to standard output. For most assistants
+that is `-p` (or `--print` / `--prompt`). Some are wrappers that proxy several
+underlying agents — if you find one, use its own listing command to enumerate
+what it offers, and turn each into a concrete runnable command rather than
+presenting the wrapper itself as the answer.
+
+**How long it actually takes.** This is the part that cannot be reasoned about:
 
 ```bash
-aifx agent list
+withy set-command "<candidate>"
+withy test-command
 ```
 
-Turn the result into **specific runnable commands**, one per agent:
+`test-command` runs the command exactly as Withy will and reports the elapsed
+time, along with whether it errored or printed a banner around the answer. Try
+each plausible candidate and keep the fastest that returns clean text. Polishing
+runs on every dictation, so a few seconds of difference is the difference
+between a tool someone keeps and one they turn off.
 
-```
-aifx agent run claude -p
-aifx agent run gemini -p
-```
-
-Do the same for any other multiplexer you find.
+**Do not assume a smaller or "faster" model is quicker.** Measured on one
+machine with the same audio, the default model took 4.5-7.5 s while the same
+command with a small-model flag took 33.5-51.9 s. Through a CLI, model choice
+interacts with process startup, caching and routing in ways that do not follow
+from the model's size. Measure; do not predict.
 
 ### 3. Offer the user a real choice
 
@@ -74,9 +92,10 @@ not a list of binaries. For example:
 
 > I found two ways to polish your dictation on this machine:
 >
-> 1. **`aifx agent run claude -p`** — uses the assistant your company already
->    provides. No API key, nothing to install. *Recommended.*
-> 2. **`aifx agent run gemini -p`** — same, different model.
+> 1. **`claude -p`** — uses an assistant already installed here. No API key,
+>    nothing to download, and it answered a test prompt in 4 seconds.
+>    *Recommended.*
+> 2. **`gemini -p`** — also installed, took 9 seconds on the same test.
 >
 > There is also a local model (a ~2 GB download, private but slower and less
 > good at paragraphs), or a remote API if you have your own key. Which would
@@ -88,7 +107,7 @@ inventing a command.
 ### 4. Check the choice, then hand it to the installer
 
 ```bash
-./install.sh --polish-command "aifx agent run claude -p"
+./install.sh --polish-command "claude -p"
 ```
 
 The installer stores it and runs `withy test-command` itself, which exercises
@@ -219,30 +238,21 @@ Withy needs the **non-interactive** form: a command that takes a prompt on
 standard input and prints the answer on standard output. Find out what they have:
 
 ```bash
-for c in claude aifx llm ollama codex cursor-agent copilot gemini q chatgpt; do
+for c in claude llm ollama codex cursor-agent copilot gemini q chatgpt; do
   command -v "$c" >/dev/null && echo "found: $c"
 done
 ```
 
 Then work out the right invocation. Common shapes:
 
-| Tool | Command to enter |
+Common shapes, as a starting point only:
+
+| Tool | Non-interactive form |
 |---|---|
 | Claude Code | `claude -p` |
-| `aifx` (a corporate multi-agent proxy CLI) | `aifx agent run claude -p` |
 | `llm` (Simon Willison's) | `llm` |
-| Ollama, as a CLI | `ollama run qwen2.5:3b` |
-| GitHub Copilot CLI | `copilot -p` |
-| Gemini CLI | `gemini -p` |
-
-**If `aifx` is present**, it is a proxy over several agents and the available
-ones vary by organisation — enumerate them rather than guessing:
-
-```bash
-aifx agent list
-```
-
-Then use whichever the person prefers: `aifx agent run <agent> -p`.
+| Ollama, as a CLI | `ollama run <model>` |
+| Most others | `<tool> -p` |
 
 If you are not sure, **test it before saving**:
 
@@ -254,7 +264,7 @@ Withy can check this for you — this is the authoritative test, because it runs
 the command exactly as Withy will:
 
 ```bash
-withy set-command "aifx agent run claude -p"
+withy set-command "claude -p"
 withy test-command
 ```
 
@@ -411,6 +421,17 @@ withy diagnose
 Usually Hammerspoon is missing **Input Monitoring**. After granting it, menu →
 **Reload**. If `diagnose` shows a binary as NOT RESOLVED, that is a PATH problem
 in the launcher — re-run `./install.sh`.
+
+### "How do I make sure nothing I say leaves this machine?"
+
+**Offline mode** — ⌃⌥⌘O, or the menu. It blocks every polishing backend that
+transmits and keeps a local model if one is installed, or turns polishing off if
+not. The previous choice is restored when it is switched off.
+
+Be precise with people about what counts: transcription is **always** local, so
+only polishing can ever transmit. A remote API obviously does. **A local CLI
+also does** — the command runs on their machine, but the assistant behind it
+usually does not, and that distinction is easy to miss.
 
 ### "Does it work offline / is anything uploaded?"
 

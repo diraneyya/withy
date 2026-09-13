@@ -361,6 +361,47 @@ local function cliJSON(args)
   return ok and decoded or nil
 end
 
+-- ── offline mode ─────────────────────────────────────────────────────────
+-- Transcription is always local, so the only thing that can ever transmit is
+-- polishing. Offline mode is the switch that guarantees none of it does.
+--
+-- It is NOT the same as "polishing off": the local LLM model is equally silent,
+-- so offline mode keeps it if it is installed. And it is not the same as
+-- "local" in the loose sense — a local CLI runs on this machine but the
+-- assistant behind it usually does not, so it counts as transmitting.
+local SILENT_BACKENDS = { ["local"] = true }
+
+local function offlineOn()
+  return setting("offline", false) == true
+end
+
+function obj:_setOffline(on, announce)
+  local cfg = readSettings()
+  if on then
+    cfg.offline = true
+    cfg.backend_before_offline = cfg.polish_backend or "local"
+    local inv = cliJSON("models --json") or {}
+    local li = inv["local"] or {}
+    if li.usable then
+      cfg.polish_backend, cfg.postprocess = "local", true
+    else
+      cfg.postprocess = false      -- nothing silent available: polish nothing
+    end
+  else
+    cfg.offline = false
+    if cfg.backend_before_offline then
+      cfg.polish_backend = cfg.backend_before_offline
+      cfg.postprocess = true
+    end
+  end
+  writeSettings(cfg)
+  if announce then
+    hs.alert.show(on and "Withy — offline mode ON\nnothing leaves this Mac"
+                     or "Withy — offline mode off", 2)
+  end
+  self:_phase(nil)
+end
+
 function obj:_buildMenu()
   local items = {}
   local key = keyById(setting("record_key", "rightalt"))
@@ -372,6 +413,21 @@ function obj:_buildMenu()
   -- a stats command is no use to someone who just watched a spinner.
   local last = readHistory(1)[1]
   local lastFmt = last and last.meta and last.meta.format
+
+  -- The last dictation's timings, stated as exactly that. A median across
+  -- dictations of different lengths, printed beside a model name, reads as a
+  -- benchmark on fixed input — which it is not, and cannot be without one.
+  if last and last.meta and tonumber(last.meta.transcribe_seconds) then
+    local t = string.format("Last dictation: %.1fs transcribing",
+                            last.meta.transcribe_seconds)
+    if lastFmt and tonumber(lastFmt.seconds) and lastFmt.seconds > 0 then
+      t = t .. string.format(", %.1fs polishing", lastFmt.seconds)
+    end
+    if tonumber(last.meta.words) then
+      t = t .. string.format("  (%d words)", last.meta.words)
+    end
+    items[#items + 1] = { title = t, disabled = true }
+  end
   if lastFmt and tonumber(lastFmt.seconds) and tonumber(lastFmt.seconds) > SLOW_POLISH_HINT then
     items[#items + 1] = {
       title = string.format("Polishing took %.0fs with %s — try another option",
@@ -462,19 +518,13 @@ function obj:_buildMenu()
     return true
   end
 
-  -- What a backend actually costs on THIS machine, from this user's own
-  -- dictations. A published benchmark cannot answer "is this slow for me".
-  local function timing(backend)
-    local st = self.stats and self.stats[backend]
-    if not st or not st.runs or st.runs < 2 then return "" end
-    return string.format("  ~%gs", st.median)
-  end
-
   local function remoteItem(provider, label, modelKey, modelDefault)
     local have = hasKey(provider)
     return {
       title = "Remote " .. label .. " API (" .. setting(modelKey, modelDefault) .. ") — "
-              .. (have and "API key available" or "API key needed") .. timing(provider),
+              .. (have and "API key available" or "API key needed")
+              .. (offlineOn() and "   (sends text out — off in offline mode)" or ""),
+      disabled = offlineOn(),
       checked = polishOn and backend == provider,
       fn = function()
         if not hasKey(provider) and not askKey(provider, label) then return end
@@ -527,8 +577,7 @@ function obj:_buildMenu()
         local cmd = hs.execute("'" .. cliPath() .. "' install-cmd remove-local")
         runVisibly((cmd or ""):gsub("%s+$", ""))
       end }
-    return { title = "Local LLM model (" .. tostring(localInfo.selected) .. ")"
-                     .. timing("local"),
+    return { title = "Local LLM model (" .. tostring(localInfo.selected) .. ")",
              checked = polishOn and backend == "local", menu = sub }
   end
 
@@ -539,10 +588,10 @@ function obj:_buildMenu()
     local btn, cmd = hs.dialog.textPrompt(
       "Withy — local CLI",
       "Command that takes a prompt on standard input and prints the answer.\n\n"
-      .. "At home this is usually:   claude -p --model haiku\n"
-      .. "At work it may be:         aifx agent run claude -p\n\n"
-      .. "Whatever assistant you have, use its non-interactive form.",
-      (#cliCmd > 0) and cliLabel or "claude -p --model haiku", "Save", "Cancel")
+      .. "Use the non-interactive form of whichever assistant you have — for "
+      .. "most of them that is the -p flag.\n\n"
+      .. "Withy will check the command and tell you how long it took.",
+      (#cliCmd > 0) and cliLabel or "claude -p", "Save", "Cancel")
     if btn ~= "Save" or not cmd or cmd == "" then return false end
     hs.execute("'" .. cliPath() .. "' set-command " .. ("%q"):format(cmd))
 
@@ -561,12 +610,23 @@ function obj:_buildMenu()
     return true
   end
 
+  local offline = offlineOn()
+  items[#items + 1] = {
+    title = offline and "Offline mode — nothing leaves this Mac"
+                    or "Offline mode",
+    checked = offline,
+    fn = function() self:_setOffline(not offline, false) end,
+  }
+  items[#items + 1] = { title = "-" }
+
   items[#items + 1] = { title = "Polishing LLM", menu = {
     { title = "Off — type exactly what was heard",
       checked = not polishOn,
       fn = function() saveSetting("postprocess", false) end },
     onDeviceItem(),
-    { title = "Local CLI — " .. cliLabel .. timing("command"),
+    { title = "Local CLI — " .. cliLabel
+              .. (offline and "   (sends text out — off in offline mode)" or ""),
+      disabled = offline,
       checked = polishOn and backend == "command",
       fn = function()
         if #setting("polish_command", {}) == 0 and not askCommand() then return end
@@ -734,6 +794,11 @@ function obj:start()
     self.menu:setMenu(function() return self:_buildMenu() end)
   end
   self:_rebind()
+  -- Reachable without the menu: the moment you want this is the moment before
+  -- you say something, not two clicks later.
+  self.offlineHotkey = hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "O", function()
+    self:_setOffline(not offlineOn(), true)
+  end)
   self:_startWatchdog()
   return self
 end
@@ -741,6 +806,7 @@ end
 function obj:stop()
   if self.tap then self.tap:stop() end
   if self.watchdog then self.watchdog:stop() end
+  if self.offlineHotkey then self.offlineHotkey:delete() end
   if self.menu then self.menu:delete() end
   return self
 end

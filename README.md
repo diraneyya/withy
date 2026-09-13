@@ -112,6 +112,13 @@ not.
 to type it, so a wrong window, a lost keystroke or a crash costs you a click,
 not a paragraph.
 
+**Offline mode, on a keyboard shortcut.** ⌃⌥⌘O, or the menu. Transcription is
+always local, so the only thing that can ever leave your Mac is the text being
+tidied up — and offline mode guarantees none of it does. It is not the same as
+turning polishing off: a local LLM model is equally silent, so offline mode
+keeps it if you have one. Say something you would rather no service ever saw,
+and you can be certain it stayed here.
+
 ---
 
 ## Unopinionated by design
@@ -140,7 +147,12 @@ works; Withy checks the one you give it and tells you if it is wrong, rather
 than quietly doing nothing.
 
 The menu says *"leaves this Mac"* on the remote options, because that is the one
-thing worth knowing before you pick one.
+thing worth knowing before you pick one. **A local CLI counts as leaving** — the
+command runs here, but the assistant behind it usually does not.
+
+**Offline mode** (⌃⌥⌘O) blocks every option that transmits, and falls back to a
+local model if you have one or to no polishing if you don't. Turn it off again
+and your previous choice comes back.
 
 ### Models
 

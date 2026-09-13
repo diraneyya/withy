@@ -95,6 +95,10 @@ DEFAULTS: dict = {
     # recording path never pays for enumeration.
     "resolved_mic": "",
     "postprocess": True,
+    # Offline mode: only backends that cannot transmit are allowed. Transcription
+    # is local regardless, so this is entirely about polishing.
+    "offline": False,
+    "backend_before_offline": "",
     "llm_model": "qwen2.5:3b",
     # "local" keeps everything on the machine. "openai" sends the transcript to
     # a hosted model — faster and better, but it is the one thing that leaves.
@@ -104,8 +108,8 @@ DEFAULTS: dict = {
     # latency floor, not a one-off. Both hosted defaults are the fast, cheap
     # tier of their family; raise them here if the quality does not hold.
     "anthropic_model": "claude-haiku-4-5",
-    # Explicit argv for the "command" backend; empty = auto-detect
-    # (claude, then aifx agent run claude, then llm).
+    # Explicit argv for the "command" backend; empty = auto-detect from
+    # CLI_CANDIDATES in format.py.
     "polish_command": [],
     # Override the per-backend default chunk size; 0 = use the default.
     "chunk_words": 0,

@@ -8,7 +8,7 @@
 #   ./install.sh                 install dictation (no on-device model)
 #   ./install.sh --with-llm      also install Ollama for on-device polishing
 #   ./install.sh --model base.en use a smaller, faster Whisper model
-#   ./install.sh --polish-command "aifx agent run claude -p"
+#   ./install.sh --polish-command "claude -p"
 #                                configure polishing to use a local CLI agent
 #   ./install.sh --polish-backend off|local|command|openai|anthropic
 #
