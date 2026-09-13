@@ -1,9 +1,9 @@
-# Withy — installing where GitHub is blocked
+# Withy Voice — installing where GitHub is blocked
 
 This copy exists because `github.com` is not reachable from some corporate
 networks. Everything needed is here; you do not need the repository.
 
-**Withy** is local push-to-talk dictation for macOS. Hold a key, speak, release,
+**Withy Voice** is local push-to-talk dictation for macOS. Hold a key, speak, release,
 and the text is typed into whatever app has focus. Speech never leaves the
 laptop. It replaces a paid cloud dictation tool at no per-seat cost and with no
 vendor review to pass, because no audio is transmitted.

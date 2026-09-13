@@ -2,7 +2,7 @@
   <img src="docs/logo.png" alt="" width="132">
 </p>
 
-<h1 align="center">Withy</h1>
+<h1 align="center">Withy Voice</h1>
 
 <p align="center">
   <strong>Push-to-talk dictation for macOS that runs entirely on your machine.</strong><br>
@@ -41,7 +41,7 @@ Settings → Privacy & Security, hold **right Option**, and speak.
 
 Or hand the whole job to a coding assistant — paste this at it:
 
-> Install Withy on my Mac by following
+> Install Withy Voice on my Mac by following
 > https://raw.githubusercontent.com/diraneyya/withy/master/LLM.md
 
 That path is worth preferring: the assistant can see which tools already exist
@@ -76,7 +76,7 @@ Everything else lives in that menu:
 
 The default is **right Option, not fn**. `fn` is the nicer key to hold, and it
 is also the one macOS binds to Apple Dictation and the one most commercial
-dictation tools take — so Withy stays out of its way by default.
+dictation tools take — so Withy Voice stays out of its way by default.
 
 That is deliberate: install Withy on a different key from whatever you use
 today and compare them on the same sentences before committing. To move to `fn`
@@ -123,8 +123,8 @@ and you can be certain it stayed here.
 
 ## Unopinionated by design
 
-Withy tries not to decide things for you, and to say plainly what each choice
-costs.
+Withy Voice tries not to decide things for you, and to say plainly what each
+choice costs.
 
 ### Polishing
 
@@ -254,7 +254,7 @@ remote polishing backend.
 
 A **withy** is a willow branch cut for weaving.
 
-Withy was written in a garden in Almere Buiten, beside a heap of willow branches
+Withy Voice was written in a garden in Almere Buiten, beside a heap of willow branches
 a neighbour had cut down the day before. The tree itself is gone — the one whose
 long strands used to move against the sky above a summer fire. What remains is a
 pile of rods and the question of what to do with them.

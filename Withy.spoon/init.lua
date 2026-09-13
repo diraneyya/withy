@@ -1,4 +1,4 @@
---- === Withy ===
+--- === Withy Voice ===
 ---
 --- Push-to-talk dictation. Hold a key, speak, release; the text is typed into
 --- whatever has focus. Everything runs locally.
@@ -16,7 +16,7 @@ obj.__index = obj
 
 obj.name = "Withy"
 obj.version = "1.0.0"
-obj.author = "Withy contributors"
+obj.author = "Withy Voice contributors"
 obj.license = "Apache-2.0"
 obj.homepage = "https://github.com/diraneyya/withy"
 
@@ -89,7 +89,7 @@ end
 function obj:_run(args, done)
   local bin = cliPath()
   if not bin then
-    hs.notify.new({ title = "Withy", informativeText = "CLI not found — reinstall" }):send()
+    hs.notify.new({ title = "Withy Voice", informativeText = "CLI not found — reinstall" }):send()
     if done then done(false) end
     return
   end
@@ -407,8 +407,8 @@ function obj:_setOffline(on, announce)
   end
   writeSettings(cfg)
   if announce then
-    hs.alert.show(on and "Withy — offline mode ON\nnothing leaves this Mac"
-                     or "Withy — offline mode off", 2)
+    hs.alert.show(on and "Withy Voice — offline mode ON\nnothing leaves this Mac"
+                     or "Withy Voice — offline mode off", 2)
   end
   self:_phase(nil)
 end
@@ -547,7 +547,7 @@ function obj:_buildMenu()
 
   local function askKey(provider, label)
     local btn, key = hs.dialog.textPrompt(
-      "Withy — " .. label .. " API key",
+      "Withy Voice — " .. label .. " API key",
       "Paste your " .. label .. " API key.\n\nIt is stored in "
       .. "~/.config/withy/" .. provider .. "-key, readable only by you, and "
       .. "never written to settings.json.",
@@ -631,11 +631,11 @@ function obj:_buildMenu()
 
   local function askCommand()
     local btn, cmd = hs.dialog.textPrompt(
-      "Withy — local CLI",
+      "Withy Voice — local CLI",
       "Command that takes a prompt on standard input and prints the answer.\n\n"
       .. "Use the non-interactive form of whichever assistant you have — for "
       .. "most of them that is the -p flag.\n\n"
-      .. "Withy will check the command and tell you how long it took.",
+      .. "Withy Voice will check the command and tell you how long it took.",
       (#cliCmd > 0) and cliLabel or "claude -p", "Save", "Cancel")
     if btn ~= "Save" or not cmd or cmd == "" then return false end
     hs.execute("'" .. cliPath() .. "' set-command " .. ("%q"):format(cmd))
@@ -644,7 +644,7 @@ function obj:_buildMenu()
     -- polishing simply never happens — which is the right failure mode and a
     -- terrible experience, because nothing tells you why. (Observed live: a
     -- command saved as "claudee" left polishing quietly doing nothing.)
-    hs.alert.show("Withy — checking that command…", 2)
+    hs.alert.show("Withy Voice — checking that command…", 2)
     hs.task.new(cliPath(), function(code, out)
       local ok, res = pcall(hs.json.decode, out or "")
       local msg = (ok and res and res.message) or out or "No response."
@@ -787,7 +787,7 @@ function obj:_rebind()
           if not ok then
             self.down = false
             self:_setState("idle")
-            hs.notify.new({ title = "Withy",
+            hs.notify.new({ title = "Withy Voice",
                             informativeText = "Could not start recording — see /tmp/withy.log" }):send()
           end
         end)
@@ -806,7 +806,7 @@ function obj:_rebind()
           self:_stopFollowing()
           self:_setState("idle")
           if not ok then
-            hs.notify.new({ title = "Withy",
+            hs.notify.new({ title = "Withy Voice",
                             informativeText = "Nothing was transcribed — see /tmp/withy.log" }):send()
           end
         end)

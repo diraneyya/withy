@@ -1,6 +1,6 @@
 # CLAUDE.md — orientation for a coding agent
 
-This is **Withy**: local push-to-talk dictation for macOS. Hold a key,
+This is **Withy Voice**: local push-to-talk dictation for macOS. The command, the package, the Spoon and every path stay `withy` — the product name is the only thing that is two words. Hold a key,
 speak, release, and the text is typed into the focused application. Everything
 runs on the machine.
 

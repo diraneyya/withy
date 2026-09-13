@@ -98,7 +98,10 @@ PROVIDERS = {
         "model_setting": "openai_model",
     },
     "anthropic": {
-        "label": "Claude",
+        # The provider, not the model: the menu, the key file and the settings
+        # key all say anthropic, and one of them saying "Claude" made the same
+        # thing look like two.
+        "label": "Anthropic",
         "url": "https://api.anthropic.com/v1/messages",
         "env": ("ANTHROPIC_API_KEY", "WITHY_ANTHROPIC_KEY"),
         "model_setting": "anthropic_model",

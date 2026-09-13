@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh — install Withy on macOS.
+# install.sh — install Withy Voice on macOS.
 #
 # Safe to re-run: every step checks before it acts, and an existing Hammerspoon
 # configuration is appended to, never replaced.
@@ -50,7 +50,7 @@ LOADLINE='hs.loadSpoon("Withy"):start()'
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
 
-[[ "$(uname -s)" == "Darwin" ]] || { echo "Withy is macOS-only." >&2; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { echo "Withy Voice is macOS-only." >&2; exit 1; }
 
 # ── dependencies ─────────────────────────────────────────────────────────
 if ! command -v brew >/dev/null 2>&1; then
@@ -100,7 +100,7 @@ else
 fi
 
 # ── application ──────────────────────────────────────────────────────────
-say "Installing Withy"
+say "Installing Withy Voice"
 mkdir -p "$APP" "$(dirname "$BIN")" "$CONF" "$SPOONS"
 rm -rf "${APP:?}/withy"
 cp -R "$SRC/withy" "$APP/withy"
@@ -151,9 +151,9 @@ fi
 if [[ -f "$INIT" ]] && grep -qF 'loadSpoon("Withy")' "$INIT"; then
   echo "  hammerspoon already configured"
 else
-  say "Adding Withy to your Hammerspoon config"
+  say "Adding Withy Voice to your Hammerspoon config"
   [[ -f "$INIT" ]] && cp "$INIT" "$INIT.withy-backup.$(date +%s)"
-  printf '\n-- Withy (local dictation)\n%s\n' "$LOADLINE" >> "$INIT"
+  printf '\n-- Withy Voice (local dictation)\n%s\n' "$LOADLINE" >> "$INIT"
 fi
 
 open -a Hammerspoon 2>/dev/null || true
@@ -172,7 +172,7 @@ say "Checking the install"
 
 cat <<'EOF'
 
-  Withy is installed.
+  Withy Voice is installed.
 
   ONE THING LEFT, and it cannot be scripted: macOS permissions.
   Open System Settings > Privacy & Security and grant Hammerspoon:

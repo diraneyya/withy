@@ -1,6 +1,6 @@
-# Withy — instructions for an AI assistant
+# Withy Voice — instructions for an AI assistant
 
-You are helping someone install, configure, or use **Withy**: local push-to-talk
+You are helping someone install, configure, or use **Withy Voice**: local push-to-talk
 dictation for macOS. Hold a key, speak, release, and the text is typed into
 whatever app has focus.
 
