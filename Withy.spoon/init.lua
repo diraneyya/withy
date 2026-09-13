@@ -666,8 +666,8 @@ function obj:_buildMenu()
   end
   speechMenu[#speechMenu + 1] = { title = "-" }
   speechMenu[#speechMenu + 1] = {
-    title = "Benchmark all models…",
-    fn = function() runVisibly("'" .. cliPath() .. "' benchmark") end }
+    title = "Benchmark speech models…",
+    fn = function() runVisibly("'" .. cliPath() .. "' benchmark speech") end }
   speechMenu[#speechMenu + 1] = { title = "-" }
   -- ipairs, not pairs: the order these are offered in is meaningful
   for _, d in ipairs(speech.downloadable or {}) do
@@ -712,6 +712,10 @@ function obj:_buildMenu()
     { title = "Remove Anthropic API key", disabled = not hasKey("anthropic"),
       fn = function() hs.execute("'" .. cliPath() .. "' remove-key anthropic") end },
     { title = "-" },
+    -- In this menu, not a general one: the question "which of these should I
+    -- use" is asked here, so the answer belongs here.
+    { title = "Benchmark polishing options…",
+      fn = function() runVisibly("'" .. cliPath() .. "' benchmark polish") end },
     { title = "Edit polishing instructions…",
       fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end },
   } }
