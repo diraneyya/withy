@@ -787,6 +787,15 @@ function obj:_buildMenu()
       self:_run({ "diagnose" })
     end,
   }
+  items[#items + 1] = {
+    title = "Update Withy Voice…",
+    fn = function()
+      -- A git pull and a reinstall belong in a visible Terminal, like the
+      -- model downloads: they can fail, and the checks at the end matter.
+      local cmd = hs.execute("'" .. cliPath() .. "' install-cmd update")
+      if cmd and #cmd > 0 then runVisibly((cmd:gsub("%s+$", ""))) end
+    end,
+  }
   items[#items + 1] = { title = "Reload", fn = function() hs.reload() end }
   return items
 end

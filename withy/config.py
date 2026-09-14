@@ -145,6 +145,9 @@ DEFAULTS: dict = {
     # Hammerspoon front end, which is spawned with a minimal environment and
     # therefore cannot rely on PATH.
     "cli_path": "",
+    # The git checkout the installer ran from. `withy update` pulls there and
+    # re-runs install.sh, so the user never has to remember where they cloned.
+    "source_dir": "",
 }
 
 _cache: dict | None = None

@@ -168,11 +168,34 @@ Then have them hold **right Option**, say a sentence, and release.
 ## Update
 
 ```bash
-cd withy && git pull && ./install.sh
+withy update
 ```
 
-Settings, vocabulary, custom instructions, API keys and history all live in
-`~/.config/withy` and `~/.local/share/withy` and are untouched by a reinstall.
+That pulls the latest source into the checkout the installer recorded, re-runs
+the installer, reloads the menu-bar front end in place, and ends with the same
+checks as a fresh install — **read them**, exactly as you would at install time
+(`diagnose`, then the polished test sentence). The menu has the same thing as
+**Update Withy Voice…**, which opens a Terminal so the pull and the checks are
+visible. By hand it is `cd <the clone> && git pull && ./install.sh`; an install
+older than the `update` command has no recorded checkout and says so.
+
+**A re-run of the installer changes nothing the user chose.** Settings,
+vocabulary, custom instructions, API keys and history live in `~/.config/withy`
+and `~/.local/share/withy`; the installer rewrites only install facts (the
+launcher path, the source path). The polishing backend, the speech model, the
+local model and the record key stay as they are — unless you pass the flag that
+makes that choice (`--polish-command`, `--polish-backend`, `--model`,
+`--with-llm`), which is how to change one deliberately. So do not add flags to
+an update "to be safe": a flag is a change.
+
+After an update the menu may look identical. That is expected — the Spoon is
+replaced on disk and reloaded, not reinstalled — so verify the way you verified
+the install:
+
+```bash
+~/.local/bin/withy diagnose
+~/.local/bin/withy run --text "um so the the plan is to test this" --dry
+```
 
 ## Uninstall
 

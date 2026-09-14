@@ -25,15 +25,21 @@ POLISH_BACKEND=""
 # not assume it — see --with-llm.
 WITH_LLM=0
 LLM_MODEL="qwen2.5:3b"
+# Which choices were made EXPLICITLY on this run. A re-run of the installer
+# (an update) must not reset a choice the user made since — polishing backend,
+# speech model, local model — so those settings are written only on a first
+# install or when the matching flag was passed.
+MODEL_SET=0
+LLM_SET=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-llm) WITH_LLM=0; shift ;;
-    --with-llm) WITH_LLM=1; shift ;;
+    --no-llm) WITH_LLM=0; LLM_SET=1; shift ;;
+    --with-llm) WITH_LLM=1; LLM_SET=1; shift ;;
     --polish-command) POLISH_COMMAND="$2"; shift 2 ;;
     --polish-backend) POLISH_BACKEND="$2"; shift 2 ;;
-    --model)  MODEL_NAME="$2"; shift 2 ;;
-    --llm-model) LLM_MODEL="$2"; shift 2 ;;
+    --model)  MODEL_NAME="$2"; MODEL_SET=1; shift 2 ;;
+    --llm-model) LLM_MODEL="$2"; LLM_SET=1; shift 2 ;;
     -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -46,6 +52,8 @@ CONF="$HOME/.config/withy"
 SPOONS="$HOME/.hammerspoon/Spoons"
 INIT="$HOME/.hammerspoon/init.lua"
 LOADLINE='hs.loadSpoon("Withy"):start()'
+# An existing settings.json means this is an update, not a first install.
+FRESH=1; [[ -f "$CONF/settings.json" ]] && FRESH=0
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
@@ -88,7 +96,9 @@ fi
 # ── whisper model ────────────────────────────────────────────────────────
 MODEL_DIR="$(brew --prefix)/share/whisper-cpp"
 MODEL_PATH="$MODEL_DIR/ggml-$MODEL_NAME.bin"
-if [[ -f "$MODEL_PATH" ]]; then
+if [[ "$FRESH" == "0" && "$MODEL_SET" == "0" ]]; then
+  echo "  speech model: keeping the one already configured"
+elif [[ -f "$MODEL_PATH" ]]; then
   echo "  speech model already present"
 else
   say "Downloading the speech model ($MODEL_NAME)"
@@ -122,8 +132,16 @@ rm -rf "$SPOONS/Withy.spoon"
 cp -R "$SRC/Withy.spoon" "$SPOONS/Withy.spoon"
 
 # ── configuration ────────────────────────────────────────────────────────
-"$BIN" settings "cli_path=$BIN" "whisper_model=$MODEL_PATH" \
-                "llm_model=$LLM_MODEL" "postprocess=$WITH_LLM" >/dev/null
+# Install FACTS are always (re)written; CHOICES only on a first install or
+# when the flag that makes the choice was passed. Re-running the installer to
+# update must leave the user's setup exactly as it was.
+"$BIN" settings "cli_path=$BIN" "source_dir=$SRC" >/dev/null
+if [[ "$FRESH" == "1" || "$MODEL_SET" == "1" ]]; then
+  "$BIN" settings "whisper_model=$MODEL_PATH" >/dev/null
+fi
+if [[ "$FRESH" == "1" || "$LLM_SET" == "1" ]]; then
+  "$BIN" settings "llm_model=$LLM_MODEL" "postprocess=$WITH_LLM" >/dev/null
+fi
 "$BIN" vocab path >/dev/null    # creates the vocabulary file on first run
 
 # Polishing choice, if one was passed in.
@@ -167,8 +185,13 @@ if command -v hs >/dev/null 2>&1; then
 fi
 
 # ── verify ───────────────────────────────────────────────────────────────
+# Check the EFFECT, not the exit codes above: the health check, and then the
+# text stages on a real sentence — the line printed is what polishing does.
 say "Checking the install"
 "$BIN" diagnose || warn "some checks failed — see above"
+say "Polishing a test sentence"
+echo '  in:  "um so the the plan is to test this"'
+printf '  out: "%s"\n' "$("$BIN" run --text "um so the the plan is to test this" --dry 2>/dev/null | tail -1)"
 
 cat <<'EOF'
 

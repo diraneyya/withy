@@ -235,16 +235,13 @@ PROBE_IN = "Add punctuation and return only the corrected text: hello there how 
 PROBE_WANT = ("hello", "there", "how", "are", "you")
 
 
-def cmd_test_command(a) -> int:
-    """Check that the configured CLI actually behaves like a polisher.
+def probe_cli(timeout: int) -> dict:
+    """Exercise the configured local CLI exactly as polishing will.
 
-    A wrong command fails silently and safely — polishing just never happens —
-    which is the right failure mode but a terrible experience, because nothing
-    tells you why. So the command is exercised once, when it is set.
-
-    Three things can be wrong and each is reported separately: the command does
-    not exist, it errors, or it 'works' but prints a banner / spinner / preamble
-    around the answer, which would be typed into the user's document.
+    Returns {"ok", "reason", "message", "seconds"?}. Three things can be wrong
+    and each is reported separately: the command does not exist, it errors, or
+    it 'works' but prints a banner / spinner / preamble around the answer, which
+    would be typed into the user's document.
     """
     argv = fmt.detect_cli()
     if not argv:
@@ -257,34 +254,29 @@ def cmd_test_command(a) -> int:
         else:
             msg = ("No command-line assistant found. Set one with: "
                    'withy set-command "claude -p"')
-        _emit({"ok": False, "reason": "not-found", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "not-found", "message": msg}
 
     t0 = time.time()
     try:
         res = subprocess.run(argv, input=PROBE_IN, capture_output=True,
-                             text=True, timeout=a.timeout)
+                             text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        msg = (f"`{' '.join(argv)}` produced nothing within {a.timeout}s. "
-               "It may be waiting for input, or the model is very slow.")
-        _emit({"ok": False, "reason": "timeout", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "timeout", "message":
+                f"`{' '.join(argv)}` produced nothing within {timeout}s. "
+                "It may be waiting for input, or the model is very slow."}
     except OSError as e:
-        msg = f"Could not run `{argv[0]}`: {e}"
-        _emit({"ok": False, "reason": "exec", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "exec",
+                "message": f"Could not run `{argv[0]}`: {e}"}
 
     took = time.time() - t0
     out = res.stdout.strip()
     if res.returncode != 0:
-        msg = (f"`{' '.join(argv)}` exited {res.returncode}.\n"
-               f"{(res.stderr or '').strip()[:300]}")
-        _emit({"ok": False, "reason": "exit", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "exit", "seconds": round(took, 1), "message":
+                f"`{' '.join(argv)}` exited {res.returncode}.\n"
+                f"{(res.stderr or '').strip()[:300]}"}
     if not out:
-        msg = f"`{' '.join(argv)}` printed nothing."
-        _emit({"ok": False, "reason": "empty", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "empty", "seconds": round(took, 1),
+                "message": f"`{' '.join(argv)}` printed nothing."}
 
     low = out.lower()
     missing = [w for w in PROBE_WANT if w not in low]
@@ -295,12 +287,11 @@ def cmd_test_command(a) -> int:
     if missing or noisy:
         why = ("it did not echo the words back"
                if missing else "it printed a lot of extra text around the answer")
-        msg = (f"`{' '.join(argv)}` ran in {took:.1f}s but {why}. "
-               "Withy needs a command that prints ONLY the corrected text — "
-               "look for a quiet or print-only flag.\n\nIt returned:\n"
-               + out[:300])
-        _emit({"ok": False, "reason": "noisy", "message": msg}) if a.json else print(msg)
-        return 1
+        return {"ok": False, "reason": "noisy", "seconds": round(took, 1), "message":
+                f"`{' '.join(argv)}` ran in {took:.1f}s but {why}. "
+                "Withy needs a command that prints ONLY the corrected text — "
+                "look for a quiet or print-only flag.\n\nIt returned:\n"
+                + out[:300]}
 
     msg = f"Works. `{' '.join(argv)}` replied in {took:.1f}s:\n{out[:200]}"
     if took > 20:
@@ -308,8 +299,19 @@ def cmd_test_command(a) -> int:
                 "Try a different model flag if the tool has one — but measure it "
                 "with this command rather than assuming, because which model is "
                 "faster through a CLI is not predictable.")
-    _emit({"ok": True, "seconds": round(took, 1), "message": msg}) if a.json else print(msg)
-    return 0
+    return {"ok": True, "reason": "ok", "seconds": round(took, 1), "message": msg}
+
+
+def cmd_test_command(a) -> int:
+    """Check that the configured CLI actually behaves like a polisher.
+
+    A wrong command fails silently and safely — polishing just never happens —
+    which is the right failure mode but a terrible experience, because nothing
+    tells you why. So the command is exercised once, when it is set.
+    """
+    r = probe_cli(a.timeout)
+    _emit(r) if a.json else print(r["message"])
+    return 0 if r["ok"] else 1
 
 
 # Whisper weights, largest first. Only these two are offered: the turbo model is
@@ -447,6 +449,8 @@ def cmd_install_cmd(a) -> int:
         parts += [f"ollama rm {m}" for m in installed]
         parts.append("brew uninstall ollama || true")
         print("; ".join(parts))
+    elif a.what == "update":
+        print(f"'{config.settings()['cli_path'] or 'withy'}' update")
     elif a.what == "speech":
         name = a.name or "base.en"
         d = pathlib.Path(str(config.settings()["whisper_model"])).parent
@@ -575,6 +579,32 @@ def cmd_purge(a) -> int:
     return 0
 
 
+def cmd_update(a) -> int:
+    """Pull the latest source and re-run the installer.
+
+    The checkout is the one the installer recorded, so the user never has to
+    remember where they cloned. install.sh is idempotent and, on a re-run,
+    writes only install facts — every choice made since (backend, model, key)
+    is left exactly as it was. It ends with the same checks as a fresh install.
+    """
+    src = str(config.settings(reload=True).get("source_dir") or "")
+    installer = pathlib.Path(src) / "install.sh"
+    if not src or not installer.exists():
+        print("withy: the source checkout is not recorded (installed before "
+              "`withy update` existed?). Run it by hand once:\n"
+              "    cd <your withy clone> && git pull && ./install.sh",
+              file=sys.stderr)
+        return 1
+    print(f"==> Pulling the latest source into {src}", flush=True)
+    pull = subprocess.run(["git", "-C", src, "pull", "--ff-only"], text=True)
+    if pull.returncode != 0:
+        print("withy: git pull failed — fix the checkout, then run `withy update` "
+              "again. Nothing was reinstalled.", file=sys.stderr)
+        return pull.returncode
+    print("==> Re-running the installer", flush=True)
+    return subprocess.run(["bash", str(installer)], cwd=src).returncode
+
+
 def cmd_diagnose(a) -> int:
     """Check the install, and optionally measure microphone start latency.
 
@@ -606,13 +636,33 @@ def cmd_diagnose(a) -> int:
     mics = capture.list_mics()
     check("input devices", bool(mics), f"{len(mics)} found; using {capture.resolve_mic()!r}")
 
-    print("formatting")
+    # Only the backend actually in use is tested. Testing the local runner on a
+    # machine polishing through a CLI reported a working install as failed —
+    # and taught the reader that [FAIL] can be ignored.
+    print("polishing")
     if not s["postprocess"]:
         print("  [--] disabled in settings")
     else:
-        t0 = time.time()
-        r = fmt._ollama(s["llm_model"], "Reply with the single word: ready", 20)
-        check(f"ollama model {s['llm_model']}", bool(r), f"{time.time()-t0:.1f}s")
+        b = s["polish_backend"]
+        if b == "local":
+            t0 = time.time()
+            r = fmt._ollama(s["llm_model"], "Reply with the single word: ready", 20)
+            check(f"local LLM model {s['llm_model']}", bool(r),
+                  f"{time.time()-t0:.1f}s" if r else
+                  "not answering — Polishing LLM → Local LLM model in the menu")
+        elif b == "command":
+            r = probe_cli(60)
+            argv = fmt.detect_cli() or fmt.configured_cli() or ["(none)"]
+            check(f"local CLI `{' '.join(argv)}`", r["ok"],
+                  f"{r['seconds']}s" if r["ok"] else r["message"].splitlines()[0])
+        elif b in fmt.PROVIDERS:
+            # The key is checked, the API is not called: a health check should
+            # not spend money or send anything off the machine.
+            check(f"{b} API key", fmt.has_key(b),
+                  "stored (the API itself is not called here)" if fmt.has_key(b)
+                  else f"missing — withy set-key {b}")
+        else:
+            check(f"polishing backend {b!r}", False, "unknown backend")
 
     if a.mic:
         print("microphone start latency")
@@ -728,7 +778,7 @@ def main(argv: list[str] | None = None) -> int:
     q.set_defaults(fn=cmd_set_model)
 
     q = sub.add_parser("install-cmd", help="print a command for the user to run")
-    q.add_argument("what", choices=["local", "remove-local", "speech"])
+    q.add_argument("what", choices=["local", "remove-local", "speech", "update"])
     q.add_argument("name", nargs="?")
     q.set_defaults(fn=cmd_install_cmd)
 
@@ -749,6 +799,8 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("purge")
     q.add_argument("keep_days", type=int, nargs="?", default=0)
     q.set_defaults(fn=cmd_purge)
+
+    sub.add_parser("update", help="pull the latest source and reinstall").set_defaults(fn=cmd_update)
 
     q = sub.add_parser("diagnose")
     q.add_argument("--mic", action="store_true",

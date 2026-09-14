@@ -52,6 +52,11 @@ Requires macOS with [Homebrew](https://brew.sh). No Python environment to
 manage — it runs on the Python that ships with macOS and has no third-party
 Python dependencies at all.
 
+**Updating:** `withy update` (or **Update Withy Voice…** in the menu) pulls the
+latest source and re-runs the installer, which leaves every choice you have
+made — backend, models, key, vocabulary — exactly as it was, and ends with the
+same checks as a fresh install.
+
 ---
 
 ## Using it
