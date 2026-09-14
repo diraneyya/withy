@@ -696,39 +696,71 @@ function obj:_buildMenu()
   end
   items[#items + 1] = { title = "Speech model", menu = speechMenu }
 
-  items[#items + 1] = { title = "Polishing LLM", menu = {
-    { title = "Off — type exactly what was heard",
+  -- Which polishing backends the menu exposes is deployment-configurable: a
+  -- vendor config (see `withy vendor`) supplies `enabled_backends`; nil = show
+  -- all (the default). This lets a distribution restrict or reorder the menu
+  -- without patching this file.
+  local vendor = cliJSON("vendor --json") or {}
+  local enabledList = vendor.enabled_backends
+  local function shown(id)
+    if enabledList == nil then return true end
+    for _, e in ipairs(enabledList) do if e == id then return true end end
+    return false
+  end
+
+  local polish = {}
+  if shown("off") then
+    polish[#polish + 1] = { title = "Off — type exactly what was heard",
       checked = not polishOn,
-      fn = function() saveSetting("postprocess", false) end },
-    onDeviceItem(),
-    { title = "Local CLI — " .. cliLabel .. benchPolish("local CLI")
+      fn = function() saveSetting("postprocess", false) end }
+  end
+  if shown("local") then polish[#polish + 1] = onDeviceItem() end
+  if shown("command") then
+    polish[#polish + 1] = { title = "Local CLI — " .. cliLabel .. benchPolish("local CLI")
               .. (offline and "   (sends text out — off in offline mode)" or ""),
       disabled = offline,
       checked = polishOn and backend == "command",
       fn = function()
         if #setting("polish_command", {}) == 0 and not askCommand() then return end
         saveSetting("postprocess", true); saveSetting("polish_backend", "command")
-      end },
-    remoteItem("openai", "OpenAI", "openai_model", "gpt-4.1-mini"),
-    remoteItem("anthropic", "Anthropic", "anthropic_model", "claude-haiku-4-5"),
-    { title = "-" },
-    { title = "Set local CLI command…", fn = askCommand },
-    { title = "Enter OpenAI API key…",
-      fn = function() askKey("openai", "OpenAI") end },
-    { title = "Enter Anthropic API key…",
-      fn = function() askKey("anthropic", "Anthropic") end },
-    { title = "Remove OpenAI API key", disabled = not hasKey("openai"),
-      fn = function() hs.execute("'" .. cliPath() .. "' remove-key openai") end },
-    { title = "Remove Anthropic API key", disabled = not hasKey("anthropic"),
-      fn = function() hs.execute("'" .. cliPath() .. "' remove-key anthropic") end },
-    { title = "-" },
-    -- In this menu, not a general one: the question "which of these should I
-    -- use" is asked here, so the answer belongs here.
-    { title = "Benchmark polishing options…",
-      fn = function() runVisibly("'" .. cliPath() .. "' benchmark polish") end },
-    { title = "Edit polishing instructions…",
-      fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end },
-  } }
+      end }
+  end
+  if shown("openai") then
+    polish[#polish + 1] = remoteItem("openai", "OpenAI", "openai_model", "gpt-4.1-mini")
+  end
+  if shown("anthropic") then
+    polish[#polish + 1] = remoteItem("anthropic", "Anthropic", "anthropic_model", "claude-haiku-4-5")
+  end
+
+  -- Key/command management, only for the backends actually shown.
+  local mgmt = {}
+  if shown("command") then
+    mgmt[#mgmt + 1] = { title = "Set local CLI command…", fn = askCommand }
+  end
+  if shown("openai") then
+    mgmt[#mgmt + 1] = { title = "Enter OpenAI API key…",
+      fn = function() askKey("openai", "OpenAI") end }
+    mgmt[#mgmt + 1] = { title = "Remove OpenAI API key", disabled = not hasKey("openai"),
+      fn = function() hs.execute("'" .. cliPath() .. "' remove-key openai") end }
+  end
+  if shown("anthropic") then
+    mgmt[#mgmt + 1] = { title = "Enter Anthropic API key…",
+      fn = function() askKey("anthropic", "Anthropic") end }
+    mgmt[#mgmt + 1] = { title = "Remove Anthropic API key", disabled = not hasKey("anthropic"),
+      fn = function() hs.execute("'" .. cliPath() .. "' remove-key anthropic") end }
+  end
+  if #mgmt > 0 then
+    polish[#polish + 1] = { title = "-" }
+    for _, it in ipairs(mgmt) do polish[#polish + 1] = it end
+  end
+
+  polish[#polish + 1] = { title = "-" }
+  polish[#polish + 1] = { title = "Benchmark polishing options…",
+    fn = function() runVisibly("'" .. cliPath() .. "' benchmark polish") end }
+  polish[#polish + 1] = { title = "Edit polishing instructions…",
+    fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end }
+
+  items[#items + 1] = { title = "Polishing LLM", menu = polish }
 
 
   items[#items + 1] = {

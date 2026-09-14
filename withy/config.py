@@ -82,6 +82,23 @@ FFMPEG_BIN = os.environ.get("WITHY_FFMPEG_BIN") or _which("ffmpeg") or "ffmpeg"
 FFPROBE_BIN = os.environ.get("WITHY_FFPROBE_BIN") or _which("ffprobe") or "ffprobe"
 OLLAMA_BIN = os.environ.get("WITHY_OLLAMA_BIN") or _which("ollama") or "ollama"
 
+# ── vendor / deployment config ────────────────────────────────────────────────
+# An optional file shipped WITH the app that lets a distribution choose which
+# polishing backends the UI exposes and which one is the default. Absent (the
+# usual case) -> every backend is shown and the default is "local", i.e. no
+# behaviour change. A distributor drops a vendor.json next to this module, e.g.:
+#     {"enabled_backends": ["off", "local"], "default_backend": "local"}
+def vendor() -> dict:
+    f = Path(__file__).parent / "vendor.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+_VENDOR = vendor()
+
+
 # ── defaults ────────────────────────────────────────────────────────────────
 # record_key defaults to right-Option rather than fn, because fn is the key an
 # incumbent dictation tool (Apple Dictation, Willow, Wispr Flow) most likely
@@ -102,7 +119,8 @@ DEFAULTS: dict = {
     "llm_model": "qwen2.5:3b",
     # "local" keeps everything on the machine. "openai" sends the transcript to
     # a hosted model — faster and better, but it is the one thing that leaves.
-    "polish_backend": "local",
+    # The default may be overridden by a vendor config (see vendor()).
+    "polish_backend": _VENDOR.get("default_backend", "local"),
     "openai_model": "gpt-4.1-mini",
     # Polishing runs on EVERY utterance, so the model is a recurring cost and a
     # latency floor, not a one-off. Both hosted defaults are the fast, cheap
@@ -150,6 +168,10 @@ def settings(reload: bool = False) -> dict:
         s["llm_model"] = os.environ["WITHY_LLM_MODEL"]
     if os.environ.get("WITHY_POSTPROCESS"):
         s["postprocess"] = os.environ["WITHY_POSTPROCESS"] not in ("0", "false", "no")
+    # Pick the polishing backend from the environment — a convenient override for
+    # testing a backend without changing settings.json.
+    if os.environ.get("WITHY_BACKEND"):
+        s["polish_backend"] = os.environ["WITHY_BACKEND"]
     _cache = s
     return s
 

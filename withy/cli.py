@@ -107,7 +107,12 @@ def cmd_retry(a) -> int:
     if not wav or not Path(wav).exists():
         print("audio for that dictation is no longer on disk", file=sys.stderr)
         return 1
-    return 0 if pipeline.process(Path(wav), type_it=not a.dry) else 1
+    rec = pipeline.process(Path(wav), type_it=not a.dry)
+    # In --dry mode print the result instead of typing it, so a caller can
+    # capture the re-polished text (e.g. to put it on the clipboard).
+    if a.dry and rec:
+        print(rec["final"])
+    return 0 if rec else 1
 
 
 def cmd_settings(a) -> int:
@@ -332,6 +337,25 @@ HF_URL = ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
 # A sensible first local model: small enough to download without thinking about
 # it, big enough to punctuate. Bigger ones are better and are the user's choice.
 DEFAULT_LOCAL_MODEL = "qwen2.5:3b"
+
+
+def cmd_vendor(a) -> int:
+    """The vendor/deployment config: which polishing backends the UI exposes, the
+    default backend, and an optional edition name. The front end reads this to
+    filter the Polishing menu. Absent config -> all backends, default local."""
+    v = config.vendor()
+    info = {
+        "edition": v.get("edition", ""),
+        "enabled_backends": v.get("enabled_backends"),   # None = show all
+        "default_backend": v.get("default_backend", "local"),
+    }
+    if a.json:
+        _emit(info)
+    else:
+        print(f"edition:  {info['edition'] or '(none)'}")
+        print(f"backends: {info['enabled_backends'] or 'all'}")
+        print(f"default:  {info['default_backend']}")
+    return 0
 
 
 def cmd_models(a) -> int:
@@ -689,6 +713,10 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--json", action="store_true")
     q.add_argument("--timeout", type=int, default=90)
     q.set_defaults(fn=cmd_test_command)
+
+    q = sub.add_parser("vendor", help="deployment config (which backends are exposed)")
+    q.add_argument("--json", action="store_true")
+    q.set_defaults(fn=cmd_vendor)
 
     q = sub.add_parser("models", help="speech and on-device models available")
     q.add_argument("--json", action="store_true")
