@@ -20,7 +20,8 @@ import time
 import time
 from pathlib import Path
 
-from . import capture, config, correct, format as fmt, history, inject, pipeline, vocab
+from . import (capture, config, correct, format as fmt, history, inject,
+               pipeline, promptcheck, promptsync, queue, transcribe, vocab)
 from .log import log
 
 
@@ -29,7 +30,17 @@ def _emit(obj) -> None:
 
 
 def cmd_start(a) -> int:
-    capture.start()
+    # Claim the queue row BEFORE opening the microphone, so the banner shows
+    # "recording" the instant the key goes down rather than after ffmpeg warms
+    # up. A row with no audio behind it is reaped; a recording with no row
+    # would be invisible.
+    queue.reap()
+    qid = queue.start_recording()
+    try:
+        capture.start(qid)
+    except Exception:
+        queue.cancel_recording(qid)
+        raise
     return 0
 
 
@@ -42,6 +53,7 @@ def cmd_stop(a) -> int:
 
 def cmd_cancel(a) -> int:
     capture.cancel()
+    queue.cancel_recording()
     return 0
 
 
@@ -145,14 +157,46 @@ def cmd_vocab(a) -> int:
     elif a.action == "edit":
         subprocess.run(["open", "-t", str(config.VOCAB_FILE)])
     else:
-        terms = vocab.load()
-        print(f"{len(terms)} terms in {config.VOCAB_FILE}")
-        print(" ".join(terms))
+        # Show where every term came from. Terms shipped by a fork are still
+        # the user's business — injecting words they cannot see would contradict
+        # everything else about how this tool treats them.
+        terms = vocab.load_terms()
+        if not terms:
+            print(f"no terms yet — add some to {config.VOCAB_FILE}")
+            return 0
+        listed = set(vocab.prompt_terms())
+        by_source: dict[str, list[vocab.Term]] = {}
+        for t in terms:
+            by_source.setdefault(t.source, []).append(t)
+        for source, group in by_source.items():
+            where = (str(config.VOCAB_FILE) if source == "yours"
+                     else str(vocab.STOCK_DIR / f"{source}.txt"))
+            print(f"\n{len(group)} from {source}  ({where})")
+            for kind, label in ((True, "exact match, no model needed"),
+                                (False, "judged by the model, in context")):
+                names = [t.text for t in group if t.deterministic is kind]
+                if names:
+                    print(f"  [{'deterministic' if kind else 'context'}]  {label}")
+                    print("    " + " ".join(names))
+        dropped = [t.text for t in terms if t.text not in listed]
+        if dropped:
+            print(f"\n{len(dropped)} term(s) past the prompt limit, not listed "
+                  f"for the model: {' '.join(dropped[:8])}"
+                  f"{' …' if len(dropped) > 8 else ''}")
     return 0
 
 
 def cmd_prompt(a) -> int:
     fmt.ensure_prompt_file()
+    if a.action == "sync":
+        print(f"polishing instructions: {promptsync.sync()}")
+        return 0
+    if a.action == "test":
+        # Against whatever prompt is in force — the user's file if they have
+        # one. That is the question being asked: does MY prompt still work?
+        results = promptcheck.run()
+        promptcheck.report(results, verbose=bool(getattr(a, "verbose", False)))
+        return 0 if all(r.ok for r in results) else 1
     if a.action == "path":
         print(config.PROMPT_FILE)
     elif a.action == "edit":
@@ -631,6 +675,12 @@ def cmd_diagnose(a) -> int:
     print("model")
     mp = Path(str(s["whisper_model"]))
     check("whisper model", mp.exists(), str(mp))
+    # An English-only model is a legitimate choice, but it cannot detect a
+    # language — so say which one is in use rather than leaving the user to
+    # wonder why nothing is ever detected.
+    if mp.exists() and transcribe.is_english_only(str(mp)):
+        print("         English-only model: language detection is skipped "
+              "and every dictation is treated as English")
 
     print("audio")
     mics = capture.list_mics()
@@ -673,10 +723,11 @@ def cmd_diagnose(a) -> int:
         # really ~560 ms: the instrument was measuring itself.
         WINDOW = 2.0
         t0 = time.time()
-        capture.start()
+        probe = queue.new_id()
+        capture.start(probe)
         time.sleep(WINDOW)
         t_cut = time.time()
-        wav = capture.stop()
+        wav = capture.stop(probe)
         if wav:
             from . import transcribe as tr
             dur = tr.clip_duration(wav)
@@ -739,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
 
     q = sub.add_parser("prompt", help="the polishing instructions")
     q.add_argument("action", nargs="?", default="show",
-                   choices=["show", "path", "edit"])
+                   choices=["show", "path", "edit", "sync", "test"])
+    q.add_argument("--verbose", action="store_true",
+                   help="with `test`: show every case, and why each exists")
     q.set_defaults(fn=cmd_prompt)
 
     q = sub.add_parser("set-key", help="store a hosted provider's API key")
@@ -808,6 +861,14 @@ def main(argv: list[str] | None = None) -> int:
     q.set_defaults(fn=cmd_diagnose)
 
     a = p.parse_args(argv)
+    # A previous run may have been killed while it had settings borrowed — a
+    # benchmark whose Terminal window was closed, typically. Put them back
+    # before anything reads them, or the machine silently stays on whichever
+    # option was last being measured.
+    restored = config.restore_borrowed()
+    if restored:
+        log("restored settings left borrowed by an interrupted run: "
+            + ", ".join(restored))
     try:
         return a.fn(a)
     except Exception as e:                                   # noqa: BLE001

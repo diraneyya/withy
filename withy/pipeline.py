@@ -13,12 +13,26 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from . import capture, config, correct, format as fmt, history, inject, speech, transcribe, vocab
+from . import (capture, config, correct, format as fmt, history, inject,
+               queue, speech, transcribe, vocab)
 from .log import log, set_state
 
 
-def process(wav: Path, type_it: bool = True) -> dict:
-    """Run a recorded take all the way to the screen. Returns the history record."""
+def _phase(qid: str | None, phase: str) -> None:
+    """Report progress against one queue row, or globally when unqueued."""
+    if qid:
+        queue.set_phase(qid, phase)
+    else:
+        set_state(phase)
+
+
+def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
+    """Run a recorded take all the way to the screen.
+
+    `qid` names this dictation's place in the queue, so its phase is
+    reported against its own row rather than a single global state — which
+    is what lets several be shown at once.
+    """
     s = config.settings(reload=True)
     terms = vocab.load()
 
@@ -31,7 +45,7 @@ def process(wav: Path, type_it: bool = True) -> dict:
         set_state("idle")
         return {}
 
-    set_state("transcribing")
+    _phase(qid, "transcribing")
     t0 = time.time()
     raw, lang = transcribe.transcribe(wav, vocab.whisper_prompt(terms))
     transcribe_secs = time.time() - t0
@@ -40,15 +54,23 @@ def process(wav: Path, type_it: bool = True) -> dict:
         set_state("idle")
         return {}
 
-    # With formatting enabled the model handles disfluency, which it does with
-    # the context to tell a hedge from a noun. Doing it here first would only
-    # risk damage the model cannot undo.
+    # With formatting enabled the model handles disfluency, and it handles the
+    # vocabulary terms that NEED it — the ones whose garble is also ordinary
+    # English. Doing those here first would risk damage the model cannot undo,
+    # since a swap made here is invisible to it.
+    #
+    # Terms marked [deterministic] are the exception: their author has declared
+    # that the words producing them could not be anything else, so exact
+    # matching is safe and runs either way. They are corrected BEFORE the model
+    # sees the text, which is also why they need no room in its term list.
     post = bool(s["postprocess"])
-    corrected, meta = correct.clean(raw, terms, disfluency=not post)
+    det_terms, ctx_terms = vocab.split()
+    corrected, meta = correct.clean(raw, det_terms if post else terms,
+                                    disfluency=not post)
 
     format_secs = 0.0
     if post:
-        set_state("formatting")
+        _phase(qid, "formatting")
         t0 = time.time()
         final, fmeta = fmt.format_text(corrected, terms, lang)
         format_secs = time.time() - t0
@@ -72,24 +94,57 @@ def process(wav: Path, type_it: bool = True) -> dict:
     if type_it:
         # Clear the indicator BEFORE typing, so it can never sit over the field
         # being typed into.
+        if qid:
+            queue.finish(qid, drop_audio=False)
         set_state("idle")
         if not inject.inject(final):
             log("typing failed — text is in history, recoverable from the menu")
     else:
+        if qid:
+            queue.finish(qid, drop_audio=False)
         set_state("idle")
     return rec
 
 
 def stop_and_process() -> dict:
-    """What the hotkey calls on key-up."""
-    wav = capture.stop()
+    """What the hotkey calls on key-up.
+
+    The recording joins the queue FIRST and is processed second, and those are
+    deliberately separate steps. Queueing is instant, so the key is free again
+    immediately — you can start speaking the next thing while this one is still
+    being transcribed. Draining then happens under a lock that guarantees the
+    results are typed in the order they were spoken, whichever process wins it.
+    """
+    qid = queue.oldest_recording()
+    if qid is None:
+        log("stop: nothing recording")
+        return {}
+    wav = capture.stop(qid)
     if wav is None:
+        queue.cancel_recording(qid)
         return {}
-    try:
-        return process(wav)
-    except Exception as e:                                   # noqa: BLE001
-        # Whatever broke, the audio is on disk and named in the log. Say so
-        # loudly rather than dying silently with a stuck indicator.
-        log(f"CRASHED: {type(e).__name__}: {e} — audio preserved at {wav}")
-        set_state("idle")
-        return {}
+    queue.enqueue(wav, qid)
+    last: dict = {}
+
+    def handle(path: Path, item_id: str) -> None:
+        nonlocal last
+        # Move the recording to its permanent home BEFORE processing, so the
+        # path history records is the path that will still be there afterwards.
+        kept = config.AUDIO_DIR / f"take-{item_id}.wav"
+        try:
+            config.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+            path.replace(kept)
+        except OSError:
+            kept = path
+        try:
+            last = process(kept, qid=item_id) or last
+        except Exception as e:                               # noqa: BLE001
+            # Whatever broke, the audio is on disk and named in the log. Say so
+            # loudly rather than dying silently with a stuck indicator.
+            log(f"CRASHED: {type(e).__name__}: {e} — audio preserved at {kept}")
+            set_state("idle")
+
+    # Zero means another process already holds the lock and will take our file
+    # with it. That is the normal fast-typing case, not a failure.
+    queue.drain(handle)
+    return last

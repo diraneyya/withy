@@ -108,10 +108,25 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> s
     return text
 
 
-def transcribe(wav: Path, prompt: str | None = None) -> tuple[str, str]:
-    """Returns (text, language). text is '' when there is no speech."""
+def is_english_only(model: str) -> bool:
+    """whisper's `.en` models. They cannot detect a language — asked to, they
+    return a random one at p≈0.01 — so detection must be skipped, not believed.
+    Believing it cost a silent loss of polishing: a non-English answer makes the
+    formatting stage skip the dictation by design, so the symptom was "polishing
+    stopped working" with nothing in any log saying why."""
+    return Path(model).name.endswith(".en.bin") or ".en." in Path(model).name
+
+
+def transcribe(wav: Path, prompt: str | None = None,
+               model: str | None = None) -> tuple[str, str]:
+    """Returns (text, language). text is '' when there is no speech.
+
+    `model` overrides the configured one WITHOUT touching settings — which is
+    what lets the benchmark time several models without persisting a change it
+    might not live to undo.
+    """
     s = config.settings()
-    model = str(s["whisper_model"])
+    model = model or str(s["whisper_model"])
     if not Path(model).exists():
         log(f"whisper model missing: {model}")
         return "", "en"
@@ -128,6 +143,11 @@ def transcribe(wav: Path, prompt: str | None = None) -> tuple[str, str]:
     pinned = str(s["language"])
     if pinned and pinned != "auto":
         lang = pinned
+    elif is_english_only(model):
+        # Asking a `.en` model to detect gives a random language at p≈0.01, and
+        # a non-English answer silently disables polishing. It only speaks
+        # English; say so instead of asking.
+        lang = "en"
     else:
         lang, prob = detect_language(wav, model)
         log(f"language {lang} (p={prob:.3f})")

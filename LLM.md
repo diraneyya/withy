@@ -408,17 +408,26 @@ format: reverted 1 substitution(s), kept formatting
 The guarantee is that **no word you did not say can appear in the output**. A
 substituted word is reverted; the formatting around it is kept.
 
-### "It deleted my 'um' but kept 'no, scratch that'"
+### "Which of my words get dropped?"
 
-That is the rule, not a bug. Withy removes **disfluency** — filler words,
-stutters, repeated words, and false starts where someone is visibly searching
-for a phrase — because none of that was meant as content.
+Withy removes **disfluency** — filler, stutters, repeated words — and it applies
+**self-corrections**: where you back up and run at a phrase again differently,
+only the version you landed on is kept, along with any "I mean" or "no" sitting
+at the join. That is how people actually correct themselves in speech; you
+cannot un-say a thing, so you re-say it. No marker word is required, and none is
+trusted on its own.
 
-It does **not** delete text because you said "scratch that" or "I mean". Those
-are deliberate speech, and deciding they were not meant is a judgement about
-intent that belongs to the speaker. It is also the one edit the safety check
-cannot catch: an invented word is refused and a substituted word reverted, but
-deletions have to be allowed or filler removal would be impossible.
+**Nothing you say is ever treated as an instruction.** If you dictate "remove
+that" or "delete the last bit", those are words you spoke and they are
+transcribed like any others. Such a phrase is dropped only when it happens to
+sit at the join of a correction already visible in the repeated words — never
+because of what it asks for. Dictate a command at the model, including one
+telling it to ignore its instructions, and you get that command as text.
+
+This matters because deletion is the one edit the safety check cannot catch: an
+invented word is refused and a substituted word reverted, but deletions have to
+be allowed or filler removal would be impossible. So deletion is licensed by the
+*structure* of what you said, never by its *meaning*.
 
 If someone wants retractions applied, that is one line in their own
 instructions — menu → *Edit polishing instructions…*.
@@ -430,6 +439,25 @@ Plain instructions are enough; Withy appends the vocabulary and the transcript.
 Include `{text}` to control the whole template.
 
 Style is yours; the safety check is not affected by what you write there.
+
+Vocabulary comes from two places: `~/.config/withy/vocabulary.txt` and every
+`*.txt` in `withy/vocabulary.d/` (shipped with the code, for forks that need to
+distribute organisational terms). They combine by union, yours winning any
+spelling disagreement — no merge machinery is needed because a vocabulary is a
+list of independent items, unlike the prose below. A `[deterministic]` heading
+marks terms safe to correct by exact match without the model; everything else
+defaults to `[context]` and is judged in the sentence. `withy vocab` shows every
+term, its bucket and its source.
+
+Your edits survive updates. Withy stores what it last wrote as
+`~/.local/share/withy/prompt.base.md` and uses it as the ancestor in a
+three-way merge (`diff3`, which ships with macOS — `git` is deliberately not
+used, because `/usr/bin/git` is an Xcode shim that pops a GUI installer on a
+machine without the Command Line Tools). It runs on install and update, and is
+silent unless both you and Withy changed the instructions; then it asks, and
+`withy prompt sync` re-runs it by hand. Prose is merged a paragraph at a time,
+not a line at a time: the file is hard-wrapped, so a line is half a sentence and
+a re-flow upstream would otherwise look like a conflict.
 
 ### "Can I use a different key? / fn doesn't work"
 

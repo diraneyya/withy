@@ -36,14 +36,21 @@ from .log import log
 REFERENCE_WAV = config.DATA_DIR / "benchmark" / "reference.wav"
 RESULTS = config.DATA_DIR / "benchmark" / "results.json"
 
-# Deliberately messy: filler, a stutter, a retraction, reported speech, and an
-# enumeration — one of each thing polishing exists to handle.
+# Deliberately messy: filler, a stutter, BOTH shapes of self-correction, reported
+# speech, and an enumeration — one of each thing polishing exists to handle.
+#
+# Two retractions on purpose. "no scratch that" is the easy, marker-word case;
+# "we should meet on monday we should meet on tuesday" is how people actually
+# correct themselves — they back up and re-run the phrase, with no marker at all.
+# A sample containing only the first measures a detector that reads marker words,
+# which is the one shape we specifically do NOT want to rely on.
 POLISH_REFERENCE = (
     "um so the the thing i wanted to say is that we should meet on monday "
-    "no scratch that lets meet on tuesday at three and then she said well "
+    "we should meet on tuesday at three and then she said well "
     "that depends on the weather which i thought was fair enough what i need "
     "from this is three things it has to be quick it has to be private and it "
-    "has to work when the wifi is down you know what i mean"
+    "has to work when the wifi is down and actually remove the whole thing no "
+    "i mean keep it you know what i mean"
 )
 
 
@@ -73,21 +80,20 @@ def speech(models: list[dict] | None = None) -> list[dict]:
         return []
     models = models if models is not None else transcribe.speech_models()
     prompt = vocab.whisper_prompt(vocab.load())
-    original = config.settings()["whisper_model"]
     out = []
-    try:
-        for m in models:
-            config.save_settings({"whisper_model": m["path"]})
-            config.settings(reload=True)
-            t0 = time.time()
-            text, _lang = transcribe.transcribe(wav, prompt)
-            out.append({"model": m["name"], "size_mb": m["size_mb"],
-                        "seconds": round(time.time() - t0, 2),
-                        "words": len(text.split()), "text": text})
-    finally:
-        # Always put the user's choice back, including on Ctrl-C.
-        config.save_settings({"whisper_model": original})
-        config.settings(reload=True)
+    # The model is PASSED, never saved. This used to switch the setting per
+    # candidate and restore it in a `finally` — which survives Ctrl-C but not
+    # SIGTERM or SIGKILL, so closing the Terminal window mid-benchmark left the
+    # user permanently on whichever model was being timed. When that happened to
+    # be an English-only one, language detection started returning noise and
+    # polishing silently stopped. A benchmark must not be able to change the
+    # thing it is measuring.
+    for m in models:
+        t0 = time.time()
+        text, _lang = transcribe.transcribe(wav, prompt, model=m["path"])
+        out.append({"model": m["name"], "size_mb": m["size_mb"],
+                    "seconds": round(time.time() - t0, 2),
+                    "words": len(text.split()), "text": text})
     return out
 
 
@@ -115,24 +121,21 @@ def polish() -> list[dict]:
                                                 "postprocess")}
     terms = vocab.load()
     out = []
-    try:
-        for backend, label in _polish_candidates():
-            settings = {"postprocess": True}
-            if backend.startswith("local:"):
-                settings["polish_backend"] = "local"
-                settings["llm_model"] = backend.split(":", 1)[1]
-            else:
-                settings["polish_backend"] = backend
-            config.save_settings(settings)
-            config.settings(reload=True)
+    for backend, label in _polish_candidates():
+        settings = {"postprocess": True}
+        if backend.startswith("local:"):
+            settings["polish_backend"] = "local"
+            settings["llm_model"] = backend.split(":", 1)[1]
+        else:
+            settings["polish_backend"] = backend
+        # Journalled, so killing this process still puts the user's choice back
+        # on the next run. `finally` alone does not survive SIGTERM.
+        with config.borrow({**before, **settings}):
             t0 = time.time()
             text, meta = fmt.format_text(POLISH_REFERENCE, terms)
-            out.append({"backend": label, "seconds": round(time.time() - t0, 2),
-                        "applied": bool(meta.get("applied")),
-                        "text": text})
-    finally:
-        config.save_settings(before)
-        config.settings(reload=True)
+        out.append({"backend": label, "seconds": round(time.time() - t0, 2),
+                    "applied": bool(meta.get("applied")),
+                    "text": text})
     return out
 
 

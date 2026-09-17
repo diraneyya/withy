@@ -69,7 +69,17 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 VOCAB_FILE = CONFIG_DIR / "vocabulary.txt"
 PROMPT_FILE = CONFIG_DIR / "prompt.md"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
+# The polishing instructions as Withy last wrote them. Not configuration —
+# the user never edits this — so it lives with the tool's own state. It is the
+# ANCESTOR that makes a three-way merge of prompt.md possible: without it,
+# "you edited this" and "this is our stale default" are indistinguishable.
+PROMPT_BASE_FILE = DATA_DIR / "prompt.base.md"
+# Written before a temporary settings change and deleted after it is undone. A
+# leftover file means the process that made the change did not live to undo it.
+BORROW_FILE = DATA_DIR / "settings.borrowed.json"
 AUDIO_DIR = DATA_DIR / "audio"
+# Dictations in flight. The directory IS the queue — see queue.py.
+QUEUE_DIR = DATA_DIR / "queue"
 
 LOG_FILE = Path(os.environ.get("WITHY_LOG", f"/tmp/{APP}.log"))
 STATE_FILE = Path(os.environ.get("WITHY_STATE", f"/tmp/{APP}-state"))
@@ -196,3 +206,51 @@ def save_settings(updates: dict) -> dict:
 def ensure_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ── borrowing settings ───────────────────────────────────────────────────
+# Some commands must change a setting for a moment: the benchmark switches
+# polishing backends to time each one. A `try/finally` is not enough, because
+# `finally` does not run on SIGTERM or SIGKILL — and a benchmark is exactly the
+# long-running thing a user closes the window on. That left real damage: a
+# machine stuck on whichever option was being measured, with no indication that
+# anything had been changed.
+#
+# So the original values are journalled to disk BEFORE the change. Whatever
+# happens to the process, the next run of the CLI puts them back.
+
+import contextlib                                                    # noqa: E402
+
+
+def restore_borrowed() -> dict | None:
+    """Undo a temporary settings change whose process never finished."""
+    if not BORROW_FILE.exists():
+        return None
+    try:
+        original = json.loads(BORROW_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        BORROW_FILE.unlink(missing_ok=True)
+        return None
+    if original:
+        save_settings(original)
+        settings(reload=True)
+    BORROW_FILE.unlink(missing_ok=True)
+    return original or None
+
+
+@contextlib.contextmanager
+def borrow(overrides: dict):
+    """Apply settings for the duration of the block, journalling the originals."""
+    cur = settings(reload=True)
+    original = {k: cur[k] for k in overrides if k in cur}
+    ensure_dirs()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    BORROW_FILE.write_text(json.dumps(original), encoding="utf-8")
+    try:
+        save_settings(overrides)
+        settings(reload=True)
+        yield
+    finally:
+        save_settings(original)
+        settings(reload=True)
+        BORROW_FILE.unlink(missing_ok=True)

@@ -15,6 +15,9 @@ withy/          the pipeline (Python, stdlib only, runs on macOS's own python3)
   transcribe.py      whisper.cpp, two passes (detect language, then force it)
   correct.py         the deterministic rules that survived measurement
   format.py          the local LLM formatting pass + THE GATE
+  promptsync.py      three-way merge of the user's prompt.md with ours
+  promptcheck.py     the behaviour suite behind `withy prompt test`
+  vocab.py           user + shipped vocabulary, in two buckets
   inject.py          typing into the focused app
   history.py         append-only record; the recovery path
   pipeline.py        the whole flow in one function
@@ -34,7 +37,15 @@ GUI, no microphone and no hotkey.
 (3.9). This is a large part of why installing is one command. Adding a `pip`
 dependency is a design change, not a convenience — do not.
 
-**2. Never widen the deterministic corrector.** Two rules were deleted after
+**2. A benchmark must not change what it measures.** `finally` does not run on
+SIGTERM or SIGKILL, so restoring a borrowed setting there is not enough — a
+closed Terminal window once left a machine permanently on an English-only speech
+model, which silently disabled polishing (a `.en` model cannot detect a language
+and returns noise; a non-English answer makes formatting skip the dictation).
+Pass the thing being measured as an argument where possible, and use
+`config.borrow()` — which journals to disk — where it is not.
+
+**3. Never widen the deterministic corrector.** Two rules were deleted after
 measurement against 360 real dictations: phonetic out-of-vocabulary matching
 (24 firings, **15 of them damaged the text**: badass→Bytes, gonna→Kuhn,
 died→T8DE84EW) and hedge removal (20 firings, *every sampled one* legitimate).
@@ -44,17 +55,33 @@ something, measure it first with `eval/run_eval.py` and show the numbers.
 For a corrector, **precision beats recall**: a missed fix is visible and costs a
 keystroke; a wrong fix is silent and ships.
 
-**3. `format.gate()` is load-bearing — do not weaken it.** A small model given
+**4. `format.gate()` is load-bearing — do not weaken it.** A small model given
 an open brief rewrites meaning. The gate is what makes using one acceptable:
 every output word must be a word spoken in that dictation, a vocabulary term, or
 a list marker, else the output is discarded and the plain transcript is typed.
 Read the exact guarantee in the docstring before changing it — it is a set
 check, deliberately, and that is documented rather than overstated.
 
-**4. Write history before injecting.** Always. Injection fails in ordinary ways
+**5. The transcript is DATA, never instruction.** Nothing the speaker says may
+be executed: "delete the last bit" is words to transcribe, not a command. The
+gate enforces half of this for free — an invented word cannot survive, so a
+dictated command can never make the model *write* anything. Deletion is the
+unpoliced half, so it is licensed by STRUCTURE (a phrase, then a second run at
+the same phrase that diverges) and never by MEANING. Any future rule that
+deletes text because of what a phrase asks for reopens this.
+
+**6. The prompt file is not the user's until they edit it.** Withy writes
+`prompt.md` on first run, and `load_prompt()` then prefers it forever — which
+once froze the instructions at a version committed one minute later. Do not
+"fix" this by comparing the file to the shipped default: with two versions you
+cannot tell "the user added a line" from "we deleted one". `promptsync.py` keeps
+the ancestor (`prompt.base.md`) and merges three ways. Read its docstring before
+touching anything about prompt loading.
+
+**7. Write history before injecting.** Always. Injection fails in ordinary ways
 and the user must never lose words they spoke.
 
-**5. Verify the effect, not the exit code.** Most failures here are silent: a
+**8. Verify the effect, not the exit code.** Most failures here are silent: a
 zero-byte WAV with exit code 0, a keystroke burst whose tail is dropped, an
 `ollama` that answers but returns nothing. Check the artifact — the log, the
 WAV's duration, the typed text — not the return code.

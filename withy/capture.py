@@ -99,43 +99,63 @@ def is_recording() -> bool:
         return False
 
 
-def start() -> None:
-    """Begin recording.
+def part_path(qid: str) -> Path:
+    """Where this take is being written while the microphone is open."""
+    return config.QUEUE_DIR / f"{qid}.part.wav"
 
-    The cancel() first is a safety net, not a feature: push-to-talk means the
-    previous recorder has already been stopped by the key release, so this only
-    fires when a key-up was lost and a recorder was left running. Pressing the
-    key again does NOT discard a finished take — that take is already saved and
-    transcribing, which is what makes back-to-back dictation work.
+
+def pid_path(qid: str) -> Path:
+    return config.QUEUE_DIR / f"{qid}.pid"
+
+
+def start(qid: str) -> None:
+    """Begin recording take `qid`.
+
+    EVERY TAKE GETS ITS OWN FILES. There used to be one shared WAV and one
+    shared pid file, and `start()` began by cancelling whatever was running —
+    which was correct for one-at-a-time dictation and catastrophic once a second
+    press could arrive while the first take was still being closed. `stop()`
+    ends ffmpeg with SIGINT so it can flush the WAV header; the new `start()`
+    arriving a moment later SIGKILLed that same process, leaving a header-less
+    file whisper cannot read. The symptom was an empty take and a queue card
+    that appeared and vanished.
+
+    So: no cancel, no shared paths. A recorder is only ever stopped by the stop
+    that owns it, or reaped long afterwards if its key-up was lost.
     """
-    cancel()
     config.ensure_dirs()
-    config.CURRENT_WAV.unlink(missing_ok=True)
+    config.QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    wav = part_path(qid)
+    wav.unlink(missing_ok=True)
     mic = resolve_mic()
-    log(f"record start mic={mic!r}")
+    log(f"record start {qid} mic={mic!r}")
     proc = subprocess.Popen(
         [config.FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-nostdin",
          "-f", "avfoundation", "-i", f":{mic}",
-         "-ar", "16000", "-ac", "1", "-y", str(config.CURRENT_WAV)],
+         "-ar", "16000", "-ac", "1", "-y", str(wav)],
         stdout=subprocess.DEVNULL,
         stderr=config.LOG_FILE.open("a"),
         start_new_session=True,
     )
-    config.PID_FILE.write_text(str(proc.pid))
-    set_state("recording")
+    pid_path(qid).write_text(str(proc.pid))
 
 
-def stop() -> Path | None:
-    """End recording and return the WAV, or None if there is nothing usable."""
-    if not config.PID_FILE.exists():
-        log("stop: nothing recording")
-        set_state("idle")
+def stop(qid: str) -> Path | None:
+    """End take `qid` and return its WAV, or None if there is nothing usable.
+
+    The returned path IS the queue entry — the recording is written straight
+    into the queue directory, so there is no later move that a racing recorder
+    could collide with.
+    """
+    pf = pid_path(qid)
+    if not pf.exists():
+        log(f"stop: {qid} has no recorder")
         return None
     try:
-        pid = int(config.PID_FILE.read_text().strip())
+        pid = int(pf.read_text().strip())
     except ValueError:
         pid = 0
-    config.PID_FILE.unlink(missing_ok=True)
+    pf.unlink(missing_ok=True)
 
     if pid:
         try:
@@ -149,15 +169,15 @@ def stop() -> Path | None:
         except OSError:
             pass
 
-    wav = config.CURRENT_WAV
+    wav = part_path(qid)
     if not wav.exists() or wav.stat().st_size == 0:
         log("stop: WAV empty — stale input device? clearing the cached mic")
         config.save_settings({"resolved_mic": ""})
-        set_state("idle")
+        wav.unlink(missing_ok=True)
         return None
 
-    # Keep the take: this is what makes a failed dictation retryable.
-    kept = config.AUDIO_DIR / f"take-{time.strftime('%Y%m%d-%H%M%S')}.wav"
+    # Renamed within the same directory, so it becomes a queue entry atomically.
+    kept = config.QUEUE_DIR / f"{qid}.wav"
     try:
         wav.replace(kept)
     except OSError:
@@ -165,13 +185,18 @@ def stop() -> Path | None:
     return kept
 
 
-def cancel() -> None:
-    if config.PID_FILE.exists():
+def cancel(qid: str | None = None) -> None:
+    """Discard a take. With no id, discards every recorder that is running."""
+    ids = [qid] if qid else [f.stem for f in config.QUEUE_DIR.glob("*.pid")] \
+        if config.QUEUE_DIR.exists() else []
+    for i in ids:
+        pf = pid_path(i)
         try:
-            os.kill(int(config.PID_FILE.read_text().strip()), signal.SIGKILL)
+            os.kill(int(pf.read_text().strip()), signal.SIGKILL)
         except (OSError, ValueError):
             pass
-        config.PID_FILE.unlink(missing_ok=True)
+        pf.unlink(missing_ok=True)
+        part_path(i).unlink(missing_ok=True)
     set_state("idle")
 
 

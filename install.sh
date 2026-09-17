@@ -144,6 +144,12 @@ if [[ "$FRESH" == "1" || "$LLM_SET" == "1" ]]; then
 fi
 "$BIN" vocab path >/dev/null    # creates the vocabulary file on first run
 
+# Reconcile the polishing instructions with whatever this version ships. Silent
+# when the user never edited them (the common case) and when we did not change
+# them; interactive ONLY when both moved, which it can tell because it kept a
+# copy of what it last wrote. Never fails the install.
+"$BIN" prompt sync || true
+
 # Polishing choice, if one was passed in.
 if [[ -n "$POLISH_COMMAND" ]]; then
   say "Configuring polishing to use: $POLISH_COMMAND"

@@ -165,6 +165,15 @@ def clean(text: str, terms: list[str], disfluency: bool = True) -> tuple[str, di
     doing it here first only risks damage it cannot undo. The loop guard still
     runs either way — a 56x repetition is a decoding artifact, and feeding it to
     a small model is asking for trouble.
+
+    `terms` is the subset allowed to act here, not the whole vocabulary. These
+    rules match on SHAPE — an exact join, an expansion of letter names — which
+    is blind to whether the shape was meant. "C file" is a term and also a real
+    thing a programmer says; only meaning separates them, and this module has
+    none. So when the model is going to run, the caller passes only the terms
+    marked [deterministic], whose author has declared they cannot collide; the
+    rest are left for the model, which has the sentence. When no model will run,
+    the caller passes everything, because a missed fix is worse than no fix.
     """
     removed: list[str] = []
 

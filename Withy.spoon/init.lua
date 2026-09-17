@@ -133,6 +133,13 @@ local SPOON_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)")) or ""
 -- banner — deliberately at a screen EDGE and small, because a large centred one
 -- ends up covering the very field being dictated into.
 local BANNER = { w = 148, wide = 268, h = 30, margin = 10, radius = 8 }
+-- Longer than a spurious modifier flap, shorter than a human lifting a finger
+-- and pressing again. Everything below this is the OS; everything above is you.
+local FLAP_SECONDS = 0.07
+-- A ceiling on one take, so a lost key-up cannot record forever. Deliberately
+-- far longer than anyone dictates in one breath: this is a backstop, and a
+-- backstop that fires during normal use is a bug, not a feature.
+local MAX_TAKE_SECONDS = 600
 
 -- How long a phase may run before the banner says so. A step that is merely
 -- slow looks identical to one that has hung, and the honest fix is to say which
@@ -158,6 +165,7 @@ local PHASE = {
   transcribing = { text = "Transcribing", dot = { red = 1.00, green = 0.74, blue = 0.13, alpha = 1 } },
   formatting   = { text = "Polishing",    dot = { red = 0.25, green = 0.60, blue = 1.00, alpha = 1 } },
   typing       = { text = "Typing",       dot = { red = 0.30, green = 0.80, blue = 0.40, alpha = 1 } },
+  queued       = { text = "Queued",       dot = { red = 0.55, green = 0.55, blue = 0.60, alpha = 1 } },
 }
 
 local imageCache = {}
@@ -217,6 +225,11 @@ function obj.debugMark(phase, dark)
 end
 
 function obj:_banner(phase, slow)
+  -- The queue stack owns the screen now (see _renderQueue). This is kept only
+  -- for paths that are not queued dictations — retrying a past take from the
+  -- menu — and draws nothing while the stack has rows, so the two can never
+  -- overlap each other.
+  if (self.shownRows or 0) > 0 then return end
   if not setting("banner", true) then return end
   local spec = PHASE[phase]
   if not spec then
@@ -293,6 +306,115 @@ end
 -- While the CLI is working it publishes its phase to a state file; follow it so
 -- the banner says "Transcribing" and then "Polishing" rather than a generic
 -- spinner. Nothing else in the Spoon knows about pipeline stages.
+-- ── the queue, drawn ─────────────────────────────────────────────────────
+-- One banner per dictation in flight, stacked. This is the whole point of
+-- queueing: the wait is only tolerable if you can SEE it, and a single banner
+-- showing the front of the queue would hide exactly the thing the feature
+-- exists to make visible. The row being worked on sits at the top; things
+-- still waiting, and the one you are speaking right now, stack below it.
+function obj:_row(i, spec, label)
+  self.rows = self.rows or {}
+  local scr = hs.screen.mainScreen():frame()
+  local width = BANNER.wide
+  local y = scr.y + BANNER.margin + (i - 1) * (BANNER.h + 6)
+  local frame = { x = scr.x + scr.w - width - BANNER.margin, y = y,
+                  w = width, h = BANNER.h }
+  local c = self.rows[i]
+  if not c then
+    c = hs.canvas.new(frame)
+    c:level(hs.canvas.windowLevels.overlay)
+    c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
+    c:appendElements(
+      { type = "rectangle", action = "fill",
+        roundedRectRadii = { xRadius = BANNER.radius, yRadius = BANNER.radius },
+        fillColor = { red = 0, green = 0, blue = 0, alpha = 0.74 } },
+      { type = "circle", center = { x = 17, y = 15 }, radius = 5,
+        action = "fill", fillColor = PHASE.recording.dot },
+      { type = "text", frame = { x = 30, y = 6, w = width - 36, h = 19 },
+        text = "", textSize = 12.5, textColor = { white = 1, alpha = 0.95 } })
+    self.rows[i] = c
+  else
+    c:frame(frame)
+  end
+  c[2].fillColor = spec.dot
+  c[3].text = label
+  c:show()
+end
+
+function obj:_hideRowsFrom(n)
+  if not self.rows then return end
+  for i = n, #self.rows do
+    if self.rows[i] then self.rows[i]:hide() end
+  end
+end
+
+function obj:_renderQueue(items)
+  if not setting("banner", true) then self:_hideRowsFrom(1); return end
+  -- `withy start` takes a moment to launch and publish, so for the first few
+  -- hundred milliseconds of a press the queue file still says nothing is
+  -- recording. Hiding the row we optimistically drew on key-down is what made
+  -- the first press flash: shown, gone, back. While the key is held, trust the
+  -- key over the file.
+  if self.down then
+    local hasRecording = false
+    for _, item in ipairs(items) do
+      if item.phase == "recording" then hasRecording = true end
+    end
+    if not hasRecording then
+      items = { table.unpack(items) }
+      items[#items + 1] = { id = "pending", phase = "recording" }
+    end
+  end
+  local shown = 0
+  for i, item in ipairs(items) do
+    local spec = PHASE[item.phase]
+    if spec then
+      shown = shown + 1
+      local label = spec.text
+      -- Only the row actually being worked on can be "slow"; a queued row is
+      -- not stuck, it is waiting its turn, and saying otherwise would be a lie.
+      if i == 1 and item.phase ~= "queued" and item.phase ~= "recording" then
+        if self.frontPhase ~= item.phase then
+          self.frontPhase, self.frontPhaseAt = item.phase, hs.timer.secondsSinceEpoch()
+        elseif self.frontPhaseAt
+               and (hs.timer.secondsSinceEpoch() - self.frontPhaseAt)
+                   > (self:_slowAfter(item.phase) or 15) then
+          label = label .. " — taking longer than usual"
+        end
+      end
+      if #items > 1 and i == 1 then
+        label = label .. "  (" .. #items .. " in flight)"
+      end
+      self:_row(shown, spec, label)
+    end
+  end
+  self.shownRows = shown
+  self:_hideRowsFrom(shown + 1)
+  -- The menubar mark follows the front row, so icon and banner never disagree.
+  local front = items[1]
+  if self.menu then
+    local ok, img = pcall(markFor, front and front.phase == "recording"
+                                    and "recording" or nil)
+    if ok and img then self.menu:setIcon(img) end
+  end
+end
+
+-- Poll the queue state the CLI publishes. This runs ALWAYS, not only between a
+-- key release and a result: with a queue there is no longer a moment when
+-- nothing is in flight but something might still be happening.
+function obj:_startQueueWatch()
+  if self.qpoller then self.qpoller:stop() end
+  self.qpoller = hs.timer.doEvery(0.2, function()
+    local f = io.open("/tmp/withy-queue.json", "r")
+    if not f then self:_renderQueue({}); return end
+    local body = f:read("a"); f:close()
+    local ok, decoded = pcall(hs.json.decode, body or "")
+    if ok and decoded and decoded.items then
+      self:_renderQueue(decoded.items)
+    end
+  end)
+end
+
 function obj:_followPhases()
   if self.poller then self.poller:stop() end
   self.poller = hs.timer.doEvery(0.2, function()
@@ -757,8 +879,17 @@ function obj:_buildMenu()
   polish[#polish + 1] = { title = "-" }
   polish[#polish + 1] = { title = "Benchmark polishing options…",
     fn = function() runVisibly("'" .. cliPath() .. "' benchmark polish") end }
+  -- Async, like every other CLI call here. `hs.execute` blocks Hammerspoon's
+  -- main thread for as long as the editor takes to come up, which is the most
+  -- likely reason a first click on this item appeared to do nothing.
   polish[#polish + 1] = { title = "Edit polishing instructions…",
-    fn = function() hs.execute("'" .. cliPath() .. "' prompt edit") end }
+    fn = function() obj:_run({ "prompt", "edit" }) end }
+  -- Both run in a Terminal window: `test` prints a report worth reading, and
+  -- `sync` may need an answer. A menubar alert can do neither.
+  polish[#polish + 1] = { title = "Test polishing instructions…",
+    fn = function() runVisibly("'" .. cliPath() .. "' prompt test --verbose") end }
+  polish[#polish + 1] = { title = "Check for updated instructions…",
+    fn = function() runVisibly("'" .. cliPath() .. "' prompt sync") end }
 
   items[#items + 1] = { title = "Polishing LLM", menu = polish }
 
@@ -811,15 +942,45 @@ function obj:_rebind()
     local isDown = ev:getFlags()[key.flag] == true
 
     if isDown then
-      -- A re-press inside the release debounce means the user never actually
-      -- let go; keep the take running rather than starting a second one.
       if self.pendingStop then
+        -- A modifier "flap" — macOS emitting up-then-down with no human in
+        -- between — lasts a few milliseconds. A person lifting a finger and
+        -- pressing again takes far longer. Treating both as "you never let go"
+        -- is what silently merged two dictations into one and made fast
+        -- consecutive presses look like they had been missed.
+        local upFor = hs.timer.secondsSinceEpoch() - (self.upAt or 0)
+        if upFor < FLAP_SECONDS then
+          self.pendingStop:stop(); self.pendingStop = nil
+          return false
+        end
+        -- A real re-press: end the previous take NOW rather than waiting out
+        -- the debounce, so the new one starts against an empty recorder.
         self.pendingStop:stop(); self.pendingStop = nil
-        return false
+        self:_finishTake()
+      end
+      if self.down then
+        -- We never saw the key come up: the release event was lost (a Space
+        -- switch, a wedged tap, sleep). Close that take properly — with its
+        -- chirp — and begin a new one, which is what the user is asking for by
+        -- pressing again. Recovering here rather than by polling is what keeps
+        -- a live recording safe from a mistaken guess about the keyboard.
+        print("withy: key-down while already recording — recovering a lost key-up")
+        self:_finishTake()
       end
       if not self.down then
         self.down = true
-        self:_setState("recording")
+        self.downAt = hs.timer.secondsSinceEpoch()
+        -- The queue watcher will draw this row within a poll tick, but a
+        -- recording indicator that lags the key by a process launch is exactly
+        -- the "no indication that I'm recording" complaint. Draw it now and let
+        -- the next poll replace it with the truth.
+        if self.menu then
+          local ok, img = pcall(markFor, "recording")
+          if ok and img then self.menu:setIcon(img) end
+        end
+        if setting("banner", true) then
+          self:_row((self.shownRows or 0) + 1, PHASE.recording, PHASE.recording.text)
+        end
         chirp(SOUND_START)
         -- Surface a failed start. Showing the recording indicator regardless of
         -- whether the recorder actually started is how this looked like it was
@@ -834,28 +995,31 @@ function obj:_rebind()
         end)
       end
     elseif self.down and not self.pendingStop then
-      -- macOS emits spurious modifier flaps; a short debounce stops one hold
-      -- from becoming two dictations.
-      self.pendingStop = hs.timer.doAfter(0.2, function()
+      -- Wait out a possible flap before committing to a stop.
+      self.upAt = hs.timer.secondsSinceEpoch()
+      self.pendingStop = hs.timer.doAfter(FLAP_SECONDS, function()
         self.pendingStop = nil
-        self.down = false
-        self.state = "working"
-        self:_phase("transcribing")
-        self:_followPhases()
-        chirp(SOUND_STOP)
-        self:_run({ "stop" }, function(ok)
-          self:_stopFollowing()
-          self:_setState("idle")
-          if not ok then
-            hs.notify.new({ title = "Withy Voice",
-                            informativeText = "Nothing was transcribed — see /tmp/withy.log" }):send()
-          end
-        end)
+        self:_finishTake()
       end)
     end
     return false   -- never swallow the event; other apps still see the key
   end)
   self.tap:start()
+end
+
+-- Ending a take no longer means "go idle and wait": the recording joins a
+-- queue and the CLI drains it, so the banner stack is what reports progress
+-- from here on. The key is free again the instant this returns.
+function obj:_finishTake()
+  if not self.down then return end
+  self.down = false
+  chirp(SOUND_STOP)
+  self:_run({ "stop" }, function(ok)
+    if not ok then
+      hs.notify.new({ title = "Withy Voice",
+                      informativeText = "Nothing was transcribed — see /tmp/withy.log" }):send()
+    end
+  end)
 end
 
 -- ── watchdog ─────────────────────────────────────────────────────────────
@@ -868,15 +1032,21 @@ function obj:_startWatchdog()
       print("withy: event tap was disabled — restarting")
       self.tap:start()
     end
-    -- Reconcile a stuck "held down" state: if the key is not actually held,
-    -- the key-up was lost and the next press would be ignored forever.
-    if self.down and not self.pendingStop then
-      local key = keyById(setting("record_key", "rightalt"))
-      if not hs.eventtap.checkKeyboardModifiers()[key.flag] then
-        self.down = false
-        self:_setState("working")
-        self:_run({ "stop" }, function() self:_setState("idle") end)
-      end
+    -- A safety net, and nothing more. This used to ask
+    -- `hs.eventtap.checkKeyboardModifiers()` whether the record key was still
+    -- held and end the take when it said no — which is catastrophic for `fn`,
+    -- because fn is not an ordinary modifier and is not reliably reported
+    -- there. The result was a recording ending mid-sentence, every 30 seconds,
+    -- with no chirp, entirely decoupled from the user's finger.
+    --
+    -- A lost key-up is now recovered where it actually matters: on the NEXT
+    -- key-down (see the event tap). All that is left here is a ceiling, so a
+    -- genuinely wedged recorder cannot run forever — and even that ends the
+    -- take through the normal path, so it is audible.
+    if self.down and not self.pendingStop and self.downAt
+       and (hs.timer.secondsSinceEpoch() - self.downAt) > MAX_TAKE_SECONDS then
+      print("withy: take exceeded " .. MAX_TAKE_SECONDS .. "s — closing it")
+      self:_finishTake()
     end
   end)
 end
@@ -905,11 +1075,17 @@ function obj:start()
     self:_setOffline(not offlineOn(), true)
   end)
   self:_startWatchdog()
+  -- Always on. With a queue there is no longer a window in which "nothing is
+  -- happening" — a dictation can still be draining minutes after the key was
+  -- released, and the stack has to show it.
+  self:_startQueueWatch()
   return self
 end
 
 function obj:stop()
   if self.tap then self.tap:stop() end
+  if self.qpoller then self.qpoller:stop(); self.qpoller = nil end
+  if self.rows then for _, c in pairs(self.rows) do c:delete() end; self.rows = nil end
   if self.watchdog then self.watchdog:stop() end
   if self.offlineHotkey then self.offlineHotkey:delete() end
   if self.menu then self.menu:delete() end
