@@ -254,6 +254,7 @@ def reap(max_age_hours: float = 6.0) -> None:
                 pf.unlink(missing_ok=True)
                 (_dir() / f"{qid}.recording").unlink(missing_ok=True)
                 (_dir() / f"{qid}.part.wav").unlink(missing_ok=True)
+                (_dir() / f"{qid}.progress").unlink(missing_ok=True)
     except OSError:
         pass
 

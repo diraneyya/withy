@@ -981,12 +981,21 @@ function obj:_rebind()
         if setting("banner", true) then
           self:_row((self.shownRows or 0) + 1, PHASE.recording, PHASE.recording.text)
         end
-        chirp(SOUND_START)
-        -- Surface a failed start. Showing the recording indicator regardless of
-        -- whether the recorder actually started is how this looked like it was
-        -- working while capturing nothing at all.
+        -- THE CHIRP IS A PERMISSION TO SPEAK, SO IT WAITS FOR THE MICROPHONE.
+        -- It used to fire here, on the key-down — before `withy start` had even
+        -- been launched, let alone before CoreAudio had handed over the device
+        -- ~310 ms later (and sometimes a second later). Anyone who trusts the
+        -- chirp and starts talking loses their first words, and the word most
+        -- often lost is the first one: "don't". So `start` now returns only once
+        -- ffmpeg reports encoded audio, and the chirp hangs off that.
+        --
+        -- The banner above still appears instantly: it says the press was seen.
+        -- The chirp says the microphone is live. Those are different facts and
+        -- they now have different cues.
         self:_run({ "start" }, function(ok)
-          if not ok then
+          if ok then
+            chirp(SOUND_START)
+          else
             self.down = false
             self:_setState("idle")
             hs.notify.new({ title = "Withy Voice",

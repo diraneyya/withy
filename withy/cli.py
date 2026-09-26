@@ -37,10 +37,17 @@ def cmd_start(a) -> int:
     queue.reap()
     qid = queue.start_recording()
     try:
-        capture.start(qid)
+        live = capture.start(qid)
     except Exception:
         queue.cancel_recording(qid)
         raise
+    if not live:
+        # Never became a recording, so it must not leave a row behind claiming
+        # to be one. A non-zero exit is what tells the Spoon not to chirp and to
+        # say so out loud, instead of drawing a banner over a dead microphone.
+        capture.cancel(qid)
+        queue.cancel_recording(qid)
+        return 1
     return 0
 
 

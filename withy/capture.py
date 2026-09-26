@@ -29,6 +29,20 @@ _DEV_RE = re.compile(r"^\[AVFoundation.*?\]\s*\[(\d+)\]\s*(.+)$")
 # first; virtual/aggregate devices are what the zero-byte trap is made of.
 _PREFERRED = ("macbook", "built-in", "internal", "imac", "studio display")
 
+# THE CHIRP MUST NOT LIE. Opening an audio device on macOS costs ~310 ms, and
+# occasionally over a second — measured 2026-09-26: ffmpeg's own startup is
+# ~30 ms of that and Withy's bookkeeping 19 ms; the rest is CoreAudio, and a
+# hand-written AVAudioEngine recorder was no faster, so this is simply the
+# price. Everything said before the first sample is absent from the WAV, and
+# the "don't" at the front of a dictation is exactly the word that must not
+# vanish. So start() does not return until there is encoded audio, and the
+# chirp that invites you to speak hangs off that return.
+#
+# The liveness signal is ffmpeg's -progress report, NOT the WAV's size: the
+# muxer buffers 32 KB before it touches the disk, so the file sits at its
+# 44-byte header for over four seconds while audio is being captured fine.
+FIRST_SAMPLE_TIMEOUT = 5.0
+
 
 def list_mics() -> list[str]:
     """Audio input device names, in enumeration order."""
@@ -108,8 +122,45 @@ def pid_path(qid: str) -> Path:
     return config.QUEUE_DIR / f"{qid}.pid"
 
 
-def start(qid: str) -> None:
-    """Begin recording take `qid`.
+def progress_path(qid: str) -> Path:
+    """Where ffmpeg reports what it has actually encoded."""
+    return config.QUEUE_DIR / f"{qid}.progress"
+
+
+def _is_live(qid: str) -> bool:
+    """True once ffmpeg says it has encoded a non-zero amount of audio."""
+    try:
+        for line in progress_path(qid).read_text(encoding="utf-8").splitlines():
+            if line.startswith("out_time_us="):
+                value = line.split("=", 1)[1].strip()
+                if value.isdigit() and int(value) > 0:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def _wait_until_live(qid: str, proc: subprocess.Popen) -> bool:
+    """Block until the microphone is really delivering, or give up saying so."""
+    deadline = time.monotonic() + FIRST_SAMPLE_TIMEOUT
+    while time.monotonic() < deadline:
+        if _is_live(qid):
+            return True
+        if proc.poll() is not None:
+            # The recorder is gone before it produced anything. If its pid file
+            # went with it, a `stop` owned this take and ended it deliberately —
+            # a press too short to reach the first sample, not a failure.
+            if not pid_path(qid).exists():
+                return True
+            log(f"record failed: recorder exited rc={proc.returncode} with no audio")
+            return False
+        time.sleep(0.005)
+    log(f"record failed: no audio within {FIRST_SAMPLE_TIMEOUT:.0f}s — wedged input device?")
+    return False
+
+
+def start(qid: str) -> bool:
+    """Begin recording take `qid`, returning only once audio is really flowing.
 
     EVERY TAKE GETS ITS OWN FILES. There used to be one shared WAV and one
     shared pid file, and `start()` began by cancelling whatever was running —
@@ -127,10 +178,12 @@ def start(qid: str) -> None:
     config.QUEUE_DIR.mkdir(parents=True, exist_ok=True)
     wav = part_path(qid)
     wav.unlink(missing_ok=True)
+    progress_path(qid).unlink(missing_ok=True)
     mic = resolve_mic()
     log(f"record start {qid} mic={mic!r}")
     proc = subprocess.Popen(
         [config.FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-progress", str(progress_path(qid)), "-stats_period", "0.05",
          "-f", "avfoundation", "-i", f":{mic}",
          "-ar", "16000", "-ac", "1", "-y", str(wav)],
         stdout=subprocess.DEVNULL,
@@ -138,6 +191,7 @@ def start(qid: str) -> None:
         start_new_session=True,
     )
     pid_path(qid).write_text(str(proc.pid))
+    return _wait_until_live(qid, proc)
 
 
 def stop(qid: str) -> Path | None:
@@ -150,6 +204,7 @@ def stop(qid: str) -> Path | None:
     pf = pid_path(qid)
     if not pf.exists():
         log(f"stop: {qid} has no recorder")
+        progress_path(qid).unlink(missing_ok=True)
         return None
     try:
         pid = int(pf.read_text().strip())
@@ -169,6 +224,7 @@ def stop(qid: str) -> Path | None:
         except OSError:
             pass
 
+    progress_path(qid).unlink(missing_ok=True)
     wav = part_path(qid)
     if not wav.exists() or wav.stat().st_size == 0:
         log("stop: WAV empty — stale input device? clearing the cached mic")
@@ -197,6 +253,7 @@ def cancel(qid: str | None = None) -> None:
             pass
         pf.unlink(missing_ok=True)
         part_path(i).unlink(missing_ok=True)
+        progress_path(i).unlink(missing_ok=True)
     set_state("idle")
 
 
