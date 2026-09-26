@@ -373,8 +373,17 @@ function obj:_renderQueue(items)
       local label = spec.text
       -- Only the row actually being worked on can be "slow"; a queued row is
       -- not stuck, it is waiting its turn, and saying otherwise would be a lie.
-      if i == 1 and item.phase ~= "queued" and item.phase ~= "recording" then
-        if self.frontPhase ~= item.phase then
+      if i == 1 then
+        if item.phase == "queued" or item.phase == "recording" then
+          -- Nothing is being worked on, so there is no phase clock to hold.
+          -- Clearing it HERE is the point: frontPhase used to survive the take
+          -- that set it, and since every take passes through "transcribing",
+          -- the next one could match the stale name, skip the reset below, and
+          -- be measured against a clock from minutes ago — announcing that a
+          -- two-second transcription was taking longer than usual on its very
+          -- first frame. Per-take state must not outlive the take.
+          self.frontPhase, self.frontPhaseAt = nil, nil
+        elseif self.frontPhase ~= item.phase then
           self.frontPhase, self.frontPhaseAt = item.phase, hs.timer.secondsSinceEpoch()
         elseif self.frontPhaseAt
                and (hs.timer.secondsSinceEpoch() - self.frontPhaseAt)
@@ -388,6 +397,7 @@ function obj:_renderQueue(items)
       self:_row(shown, spec, label)
     end
   end
+  if shown == 0 then self.frontPhase, self.frontPhaseAt = nil, nil end
   self.shownRows = shown
   self:_hideRowsFrom(shown + 1)
   -- The menubar mark follows the front row, so icon and banner never disagree.
@@ -422,6 +432,19 @@ function obj:_followPhases()
     if not f then return end
     local st = (f:read("l") or ""):gsub("%s+", "")
     f:close()
+    -- END OF TAKE. "idle" is the absence of a phase, so it can never match
+    -- PHASE below — and without this branch every tick after a dictation
+    -- finished fell through to the slow check while still holding that take's
+    -- phase and clock, so twenty seconds later the Spoon began insisting a
+    -- finished transcription was taking longer than usual, and left a stale
+    -- phase name for the next take to collide with.
+    if st == "idle" then
+      if self.state ~= nil then
+        self.state = nil
+        self:_phase(nil)   -- clears phaseAt/phaseSlowAt and hides the banner
+      end
+      return
+    end
     -- Ignore "recording": the state file still holds it from the recorder that
     -- has only just been asked to stop, so honouring it here flips the banner
     -- back and forth between Recording and Transcribing on every key release.
