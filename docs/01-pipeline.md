@@ -64,18 +64,34 @@ of audio only, or skip detection entirely for users who never code-switch.
 ## Stage 2 — transcription, with the language forced
 
 ```bash
-whisper-cli -m <model> --no-prints -nt -mc 0 -l <lang> [--prompt "<vocab>"] <file.wav>
+whisper-cli -m <model> --no-prints -mc 0 -l <lang> [--prompt "<vocab>"] <file.wav>
 ```
 
-Every flag earns its place:
+Every flag earns its place — and one is deliberately absent:
 
 | Flag | Why |
 |---|---|
 | `-l <lang>` | The whole point of stage 1. Forcing the language eliminates the translate/transliterate lottery. |
-| `-nt` | No timestamps. We want a plain paragraph, not an SRT. |
+| ~~`-nt`~~ | **Do not use.** See below. Timestamps are stripped in Python instead. |
 | `--no-prints` | Suppress whisper.cpp's banner so stdout is *only* the transcript. |
 | `-mc 0` | **Max text context = 0.** See below — this is the single least obvious flag here. |
 | `--prompt` | Vocabulary bias. English only. See below. |
+
+### Why not `-nt` — it drops words at every 30-second boundary
+
+`-nt` looks like an output option but changes decoding. Without timestamps,
+whisper.cpp advances a full 30 seconds after each window instead of resuming
+at the end of the last complete segment, so a phrase straddling the boundary
+is lost. The transcript reads fine — the polisher even capitalises the orphan
+fragment into a new sentence — which is why this went unnoticed.
+
+Measured on 39 real dictations (28 s–4 min), same model and flags otherwise:
+with timestamps, 28 came back longer, 7 identical, 4 shorter by 1–2 words;
+**230 words recovered net**, every gap inspected sitting at 0:30, 1:00 or
+1:30 ("…said first **which still does not explain this** because…"). No new
+repetition loops. Timestamp mode is not perfect — it once swallowed four
+words inside an 18-second segment — but it fails rarely and not at every
+boundary.
 
 ### `-mc 0` — the repetition-loop guard
 

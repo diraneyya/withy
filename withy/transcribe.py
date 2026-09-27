@@ -30,6 +30,14 @@ from .log import log
 # a bare period, or nothing at all. All mean "no speech".
 _EMPTY_RE = re.compile(r"[\[\(].*[\]\)]|\.|\s*")
 _LANG_RE = re.compile(r"auto-detected language:\s*(\w+)\s*\(p\s*=\s*([0-9.]+)\)")
+_TIMESTAMP_RE = re.compile(r"^\s*\[\d+:\d+:\d+\.\d+ --> \d+:\d+:\d+\.\d+\]\s*")
+
+
+def strip_timestamps(stdout: str) -> str:
+    """whisper.cpp's `[00:00:00.000 --> 00:00:04.680]   text` lines → one
+    paragraph. Only a leading timestamp is removed; brackets in the text stay."""
+    lines = (_TIMESTAMP_RE.sub("", ln).strip() for ln in stdout.splitlines())
+    return " ".join(ln for ln in lines if ln)
 
 
 def speech_models() -> list[dict]:
@@ -83,9 +91,13 @@ def detect_language(wav: Path, model: str) -> tuple[str, float]:
 def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> str:
     cmd = [config.WHISPER_BIN, "-m", model,
            "--no-prints",   # stdout is the transcript and nothing else
-           "-nt",           # no timestamps
            "-mc", "0",      # no cross-window conditioning — the loop guard
            "-l", lang]
+    # NOT -nt. Without timestamps whisper.cpp advances a full 30s after every
+    # window instead of resuming at the last complete segment, so a phrase that
+    # straddles a window boundary is silently dropped. Measured on 39 real
+    # dictations: timestamps recovered 230 words net, all at 30s boundaries,
+    # with no new repetition loops. The timestamps are stripped below.
     # -mc 0: whisper.cpp normally conditions each 30s window on previously
     # decoded text, so a confidently-wrong token feeds itself forward and the
     # decoder loops (recorded worst case: a six-word phrase 56 times).
@@ -101,7 +113,7 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> s
     if res.returncode != 0:
         log(f"transcribe[{lang}] FAILED rc={res.returncode}: {res.stderr[:300]}")
         return ""
-    text = res.stdout.strip()
+    text = strip_timestamps(res.stdout)
     if _EMPTY_RE.fullmatch(text):
         log(f"transcribe: empty/noise output {text!r}")
         return ""
