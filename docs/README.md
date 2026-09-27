@@ -9,3 +9,5 @@ the design in general terms and occasionally name a module that has since been
 renamed. The reasoning is current; the file names may not be.
 
 Start with **`05-gotchas.md`**. It is the one that saves time.
+
+`08-future.md` holds improvements that are thought through but not built.
