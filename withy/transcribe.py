@@ -107,6 +107,14 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> s
     # exactly what forcing the language was added to prevent.
     if lang == "en" and prompt:
         cmd += ["--prompt", prompt]
+    # Cut at pauses, not every 30s: a window that starts mid-sentence has no
+    # context under -mc 0 and mishears its first word ("dirty file" -> "dirty
+    # father"), and silence is where hour-long runaway recordings loop. Without
+    # the model, timestamps alone still prevent the boundary drops.
+    if config.VAD_MODEL.exists():
+        cmd += ["--vad", "-vm", str(config.VAD_MODEL)]
+    else:
+        log(f"transcribe: no VAD model at {config.VAD_MODEL} — fixed 30s windows")
     cmd.append(str(wav))
 
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)

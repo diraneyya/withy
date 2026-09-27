@@ -80,6 +80,10 @@ BORROW_FILE = DATA_DIR / "settings.borrowed.json"
 AUDIO_DIR = DATA_DIR / "audio"
 # Dictations in flight. The directory IS the queue — see queue.py.
 QUEUE_DIR = DATA_DIR / "queue"
+# The voice-activity model that makes whisper cut audio at pauses. Kept out of
+# the whisper model directory, where speech_models() would list it as a speech
+# model.
+VAD_MODEL = _env_path("WITHY_VAD_MODEL", f"~/.local/share/{APP}/models/ggml-silero-v5.1.2.bin")
 
 LOG_FILE = Path(os.environ.get("WITHY_LOG", f"/tmp/{APP}.log"))
 STATE_FILE = Path(os.environ.get("WITHY_STATE", f"/tmp/{APP}-state"))

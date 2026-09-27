@@ -109,6 +109,19 @@ else
   mv "$MODEL_PATH.part" "$MODEL_PATH"
 fi
 
+# ── voice-activity model (cuts the audio at pauses; ~1 MB) ─────────────────
+VAD_PATH="$HOME/.local/share/withy/models/ggml-silero-v5.1.2.bin"
+if [[ -f "$VAD_PATH" ]]; then
+  echo "  pause-detection model already present"
+else
+  say "Downloading the pause-detection model (about 1 MB)"
+  mkdir -p "$(dirname "$VAD_PATH")"
+  curl -fL --progress-bar \
+    "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin" \
+    -o "$VAD_PATH.part"
+  mv "$VAD_PATH.part" "$VAD_PATH"
+fi
+
 # ── application ──────────────────────────────────────────────────────────
 say "Installing Withy Voice"
 mkdir -p "$APP" "$(dirname "$BIN")" "$CONF" "$SPOONS"

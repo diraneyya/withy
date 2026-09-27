@@ -64,7 +64,7 @@ of audio only, or skip detection entirely for users who never code-switch.
 ## Stage 2 — transcription, with the language forced
 
 ```bash
-whisper-cli -m <model> --no-prints -mc 0 -l <lang> [--prompt "<vocab>"] <file.wav>
+whisper-cli -m <model> --no-prints -mc 0 -l <lang> [--prompt "<vocab>"] [--vad -vm <silero>] <file.wav>
 ```
 
 Every flag earns its place — and one is deliberately absent:
@@ -92,6 +92,18 @@ with timestamps, 28 came back longer, 7 identical, 4 shorter by 1–2 words;
 repetition loops. Timestamp mode is not perfect — it once swallowed four
 words inside an 18-second segment — but it fails rarely and not at every
 boundary.
+
+### `--vad` — cut at pauses, not every 30 seconds
+
+With the Silero voice-activity model (`~/.local/share/withy/models/`, ~1 MB,
+downloaded by `install.sh`), whisper transcribes the speech stretches between
+pauses instead of fixed 30-second windows. Two problems go away on the same 40
+recordings: a window starting mid-sentence no longer mishears its first word
+under `-mc 0` ("dirty file" came out "dirty father" without it), and an
+hour-long accidental recording stopped looping (99 repeats of a phrase → 2).
+Keep `-mc 0` with it: turning cross-window context back on dropped a whole
+sentence and most punctuation. Without the model file, Withy falls back to
+fixed windows with timestamps.
 
 ### `-mc 0` — the repetition-loop guard
 
