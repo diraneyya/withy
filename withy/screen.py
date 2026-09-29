@@ -70,9 +70,20 @@ def _in_dictionary(word: str) -> bool:
     w = word.lower().replace("'", "")
     if w in d:
         return True
-    for suf in ("s", "es", "ed", "ing", "er", "ly"):
-        if w.endswith(suf) and w[: -len(suf)] in d:
+    stems = {w}
+    for pre in ("re", "un", "pre", "non", "over", "sub"):
+        if w.startswith(pre) and len(w) > len(pre) + 2:
+            stems.add(w[len(pre):])
+    for s in list(stems):
+        if s in d:
             return True
+        for suf in ("s", "es", "ed", "ing", "er", "ers", "ly"):
+            if s.endswith(suf):
+                base = s[: -len(suf)]
+                # running -> run, philosophizing -> philosophize
+                if base in d or base + "e" in d or (
+                        len(base) > 2 and base[-1] == base[-2] and base[:-1] in d):
+                    return True
     return False
 
 
