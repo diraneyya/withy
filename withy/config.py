@@ -151,6 +151,9 @@ DEFAULTS: dict = {
     # no speech in it. See speech.py for how this number was chosen.
     "speech_spread_db": 13.0,
     "keep_audio_days": 7,
+    # Experiment: add non-dictionary terms read off the focused element to
+    # whisper's context (never to the polisher). See screen.py.
+    "screen_context": True,
     "sound": True,
     # Front-end preferences, written by the Hammerspoon menu; listed here so
     # `withy settings` can read and set them too.

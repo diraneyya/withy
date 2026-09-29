@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import (capture, config, correct, format as fmt, history, inject,
-               queue, speech, transcribe, vocab)
+               queue, screen, speech, transcribe, vocab)
 from .log import log, set_state
 
 
@@ -45,9 +45,19 @@ def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
         set_state("idle")
         return {}
 
+    # Screen terms go to whisper ONLY — `terms` (which the polisher sees, and
+    # which may be sent to a hosted backend) is deliberately left untouched.
+    scr = screen.context() if s.get("screen_context") else None
+    whisper_terms = list(terms) + (scr["terms"] if scr else [])
+    wprompt = vocab.whisper_prompt(whisper_terms)
+    if scr is not None:
+        log(f"screen: {scr['app']} ({scr['how']}, {scr['chars']} chars) -> "
+            f"{len(scr['terms'])} terms: {', '.join(scr['terms'])}")
+    log(f"whisper context: {wprompt}")
+
     _phase(qid, "transcribing")
     t0 = time.time()
-    raw, lang = transcribe.transcribe(wav, vocab.whisper_prompt(terms))
+    raw, lang = transcribe.transcribe(wav, wprompt)
     transcribe_secs = time.time() - t0
     if not raw:
         log(f"no speech in {wav}")
@@ -85,7 +95,10 @@ def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
     fmeta["backend"] = str(s["polish_backend"]) if post else "off"
     meta.update({"lang": lang, "format": fmeta,
                  "transcribe_seconds": round(transcribe_secs, 2),
-                 "words": len(raw.split())})
+                 "words": len(raw.split()),
+                 "whisper_prompt": wprompt})
+    if scr is not None:
+        meta["screen"] = scr
     rec = history.append(raw, corrected, final, meta, wav)
     log(f"[{lang}] {len(raw.split())}w raw -> {len(final.split())}w final "
         f"(transcribe {transcribe_secs:.1f}s, "
