@@ -51,6 +51,8 @@ def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
     whisper_terms = list(terms) + (scr["terms"] if scr else [])
     wprompt = vocab.whisper_prompt(whisper_terms)
     if scr is not None:
+        screen.write_report(scr, wprompt, "last dictation")
+        scr = {k: v for k, v in scr.items() if k != "text"}
         log(f"screen: {scr['app']} ({scr['how']}, {scr['chars']} chars) -> "
             f"{len(scr['terms'])} terms: {', '.join(scr['terms'])}")
     log(f"whisper context: {wprompt}")

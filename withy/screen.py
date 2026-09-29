@@ -111,11 +111,19 @@ def _norm(s: str) -> str:
     return " ".join(s.split())
 
 
+def remove_typed(text: str, typed: list[str]) -> str:
+    """`text` with everything Withy typed replaced by a marker. Matching allows
+    any whitespace between words (a terminal wraps lines), so the rest of the
+    text keeps its layout."""
+    for t in sorted({_norm(x) for x in typed if len(x.split()) >= 3}, key=len, reverse=True):
+        pat = r"\s+".join(re.escape(w) for w in t.split())
+        text = re.sub(pat, " [typed by Withy] ", text)
+    return text
+
+
 def extract_terms(text: str, typed: list[str], known: list[str]) -> list[str]:
     """Candidate terms from `text`, after removing everything Withy typed."""
-    text = _norm(text)
-    for t in sorted({_norm(x) for x in typed if len(x.split()) >= 3}, key=len, reverse=True):
-        text = text.replace(t, " ")
+    text = remove_typed(text, typed).replace("[typed by Withy]", " ")
     seen_known = {k.lower() for k in known}
     counts: Counter[str] = Counter()
     for w in _WORD_RE.findall(text):
@@ -135,10 +143,40 @@ def extract_terms(text: str, typed: list[str], known: list[str]) -> list[str]:
     return [w for w, _ in counts.most_common(MAX_TERMS)]
 
 
+REPORT = config.DATA_DIR / "screen-report.txt"
+
+
 def context() -> dict:
-    """Read the screen and return {'app', 'how', 'chars', 'terms'}."""
+    """Read the screen: {'app', 'how', 'chars', 'terms', 'text'}.
+    'text' is what remains after removing Withy's own typing — it is for the
+    report only and must not be stored in history."""
     app, how, text = read_focused()
     typed = [r.get("final", "") for r in history.recent(50)]
     from . import vocab
     terms = extract_terms(text, typed, vocab.load()) if text else []
-    return {"app": app, "how": how, "chars": len(text), "terms": terms}
+    return {"app": app, "how": how, "chars": len(text), "terms": terms,
+            "text": remove_typed(text, typed)}
+
+
+def write_report(scr: dict, whisper_context: str, label: str) -> str:
+    """The human-readable account of one screen read, kept in REPORT."""
+    import time
+    report = "\n".join([
+        f"Withy — screen read ({label}, {time.strftime('%Y-%m-%d %H:%M:%S')})",
+        "",
+        f"App read:        {scr['app'] or '(none)'}  ({scr['how']}, {scr['chars']} characters)",
+        f"Terms found:     {', '.join(scr['terms']) or '(none)'}",
+        "",
+        "Whisper was given (vocabulary file first, then screen terms):",
+        f"  {whisper_context}",
+        "",
+        "Text read from the screen, with what Withy typed removed:",
+        "-" * 70,
+        scr.get("text", ""),
+        "",
+    ])
+    try:
+        REPORT.write_text(report, encoding="utf-8")
+    except OSError as e:
+        log(f"screen: could not write report: {e}")
+    return report

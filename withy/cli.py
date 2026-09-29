@@ -58,6 +58,24 @@ def cmd_stop(a) -> int:
     return 0
 
 
+def cmd_screen(a) -> int:
+    """Show what Withy read from the screen: the last dictation's read, or a
+    fresh one (--now) after a delay to switch to the window being tested."""
+    from . import screen, vocab
+    if a.now:
+        print(f"Reading the front window in {a.delay} s — switch to it now.", flush=True)
+        time.sleep(a.delay)
+        scr = screen.context()
+        print(screen.write_report(scr, vocab.whisper_prompt(vocab.load() + scr["terms"]),
+                                  "fresh read, not a dictation"))
+        return 0
+    if not screen.REPORT.exists():
+        print("No screen read yet. Dictate once, or run `withy screen --now`.")
+        return 1
+    print(screen.REPORT.read_text(encoding="utf-8"))
+    return 0
+
+
 def cmd_cancel(a) -> int:
     capture.cancel()
     queue.cancel_recording()
@@ -765,6 +783,11 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--text")
     q.add_argument("--dry", action="store_true", help="print, do not type")
     q.set_defaults(fn=cmd_run)
+
+    q = sub.add_parser("screen", help="show what was read from the screen for whisper")
+    q.add_argument("--now", action="store_true", help="do a fresh read instead of showing the last one")
+    q.add_argument("--delay", type=float, default=3.0, help="seconds to wait before a fresh read")
+    q.set_defaults(fn=cmd_screen)
 
     q = sub.add_parser("history")
     q.add_argument("--limit", type=int, default=10)
