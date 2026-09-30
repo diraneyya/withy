@@ -88,7 +88,8 @@ def detect_language(wav: Path, model: str) -> tuple[str, float]:
     return "en", 0.0
 
 
-def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> str:
+def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None,
+                      vad: bool = True) -> str:
     cmd = [config.WHISPER_BIN, "-m", model,
            "--no-prints",   # stdout is the transcript and nothing else
            "-mc", "0",      # no cross-window conditioning — the loop guard
@@ -111,7 +112,9 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None) -> s
     # context under -mc 0 and mishears its first word ("dirty file" -> "dirty
     # father"), and silence is where hour-long runaway recordings loop. Without
     # the model, timestamps alone still prevent the boundary drops.
-    if config.VAD_MODEL.exists():
+    if not vad:
+        log("transcribe: pause detection off (recovery)")
+    elif config.VAD_MODEL.exists():
         cmd += ["--vad", "-vm", str(config.VAD_MODEL)]
     else:
         log(f"transcribe: no VAD model at {config.VAD_MODEL} — fixed 30s windows")
@@ -138,7 +141,7 @@ def is_english_only(model: str) -> bool:
 
 
 def transcribe(wav: Path, prompt: str | None = None,
-               model: str | None = None) -> tuple[str, str]:
+               model: str | None = None, vad: bool = True) -> tuple[str, str]:
     """Returns (text, language). text is '' when there is no speech.
 
     `model` overrides the configured one WITHOUT touching settings — which is
@@ -171,4 +174,4 @@ def transcribe(wav: Path, prompt: str | None = None,
     else:
         lang, prob = detect_language(wav, model)
         log(f"language {lang} (p={prob:.3f})")
-    return transcribe_forced(wav, lang, model, prompt), lang
+    return transcribe_forced(wav, lang, model, prompt, vad), lang

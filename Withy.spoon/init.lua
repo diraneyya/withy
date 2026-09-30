@@ -933,6 +933,7 @@ function obj:_buildMenu()
 
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = "Open log", fn = function() hs.execute("open -t " .. LOG) end }
+  items[#items + 1] = { title = "Recover last recording", fn = function() obj:_run({ "recover" }) end }
   items[#items + 1] = { title = "Show screen read…", fn = function()
     hs.execute("open -t '" .. os.getenv("HOME") .. "/.local/share/withy/screen-report.txt'") end }
   items[#items + 1] = {

@@ -1,6 +1,12 @@
 """
 speech.py — is there actually anyone talking in this recording?
 
+DEMOTED (2026-09-30): with the pause-detection model installed this check no
+longer decides anything — it is logged only, and the model decides. Real
+dictations scored 7.8-12.2 dB here and were discarded against the 13 dB
+cut-off below; the model got all of them right and typed nothing on silence.
+This check still decides when the model file is missing.
+
 Whisper hallucinates on silence. Fed 0.6 seconds of room tone it confidently
 returns "Thank you." — and a dictation tool that types "Thank you." when you
 said nothing is worse than one that does nothing at all.

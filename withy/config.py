@@ -80,6 +80,8 @@ BORROW_FILE = DATA_DIR / "settings.borrowed.json"
 AUDIO_DIR = DATA_DIR / "audio"
 # Dictations in flight. The directory IS the queue — see queue.py.
 QUEUE_DIR = DATA_DIR / "queue"
+# The last recording that ended with nothing typed — what `withy recover` takes.
+DISCARDED_FILE = DATA_DIR / "last-discarded.json"
 # The voice-activity model that makes whisper cut audio at pauses. Kept out of
 # the whisper model directory, where speech_models() would list it as a speech
 # model.

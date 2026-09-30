@@ -10,6 +10,8 @@ stage's text, and the worst case is that the raw transcript gets typed.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -26,7 +28,41 @@ def _phase(qid: str | None, phase: str) -> None:
         set_state(phase)
 
 
-def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
+# A recording at least this long that ends with nothing typed is announced and
+# kept for `withy recover` — a lost dictation must be visible and one click
+# from undoing, never only a line in the log.
+RECOVER_MIN_SECONDS = 2.0
+
+
+def _notify(title: str, text: str) -> None:
+    from .inject import HS_BIN
+    lua = (f"hs.notify.new({{title={json.dumps(title, ensure_ascii=False)}, "
+           f"informativeText={json.dumps(text, ensure_ascii=False)}}}):send()")
+    try:
+        subprocess.run([HS_BIN or "hs", "-q", "-c", lua], capture_output=True,
+                       timeout=4, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"notify failed: {e}")
+
+
+def _nothing_typed(wav: Path, reason: str) -> dict:
+    log(f"{reason} — nothing typed ({wav.name})")
+    set_state("idle")
+    secs = transcribe.clip_duration(wav)
+    if secs >= RECOVER_MIN_SECONDS:
+        try:
+            config.DISCARDED_FILE.write_text(json.dumps(
+                {"wav": str(wav), "reason": reason, "seconds": round(secs, 1),
+                 "ts": time.strftime("%Y-%m-%d %H:%M:%S")}))
+        except OSError as e:
+            log(f"could not record discarded take: {e}")
+        _notify("Withy: nothing typed",
+                f"{secs:.0f} s recording, {reason}. Menu → Recover last recording.")
+    return {}
+
+
+def process(wav: Path, type_it: bool = True, qid: str | None = None,
+            force: bool = False) -> dict:
     """Run a recorded take all the way to the screen.
 
     `qid` names this dictation's place in the queue, so its phase is
@@ -36,14 +72,22 @@ def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
     s = config.settings(reload=True)
     terms = vocab.load()
 
-    # Cheap check before the expensive one: whisper invents a confident
-    # sentence out of room tone, and typing "Thank you." when nothing was said
-    # is worse than typing nothing.
-    talking, spread = speech.has_speech(wav)
-    if not talking:
-        log(f"no speech detected (spread {spread:.1f} dB) — nothing typed")
-        set_state("idle")
-        return {}
+    # Whisper invents a confident "Thank you." out of room tone, so silence
+    # must be caught before it. With the pause-detection model installed, that
+    # model is the judge: on silence it hands whisper nothing and nothing comes
+    # back. The loudness-spread check is only the fallback without the model —
+    # it discarded real speech that scored 8-12 dB against a cut-off of 13.
+    # `force` (recovery) skips every check.
+    if force:
+        log("recover: all speech checks skipped")
+    elif config.VAD_MODEL.exists():
+        spread = speech.modulation_spread(wav)
+        log(f"speech: modulation spread {spread if spread is None else round(spread, 1)} dB "
+            "(logged only; pause detection decides)")
+    else:
+        talking, spread = speech.has_speech(wav)
+        if not talking:
+            return _nothing_typed(wav, f"no speech detected (spread {spread:.1f} dB)")
 
     # Screen terms go to whisper ONLY — `terms` (which the polisher sees, and
     # which may be sent to a hosted backend) is deliberately left untouched.
@@ -59,12 +103,10 @@ def process(wav: Path, type_it: bool = True, qid: str | None = None) -> dict:
 
     _phase(qid, "transcribing")
     t0 = time.time()
-    raw, lang = transcribe.transcribe(wav, wprompt)
+    raw, lang = transcribe.transcribe(wav, wprompt, vad=not force)
     transcribe_secs = time.time() - t0
     if not raw:
-        log(f"no speech in {wav}")
-        set_state("idle")
-        return {}
+        return _nothing_typed(wav, "no speech found by whisper")
 
     # With formatting enabled the model handles disfluency, and it handles the
     # vocabulary terms that NEED it — the ones whose garble is also ordinary

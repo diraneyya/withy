@@ -58,6 +58,35 @@ def cmd_stop(a) -> int:
     return 0
 
 
+def cmd_recover(a) -> int:
+    """Transcribe the last recording that ended with nothing typed — or any
+    WAV given — with every speech check skipped. The result goes to history
+    and the clipboard, never typed: the window in front now is not
+    necessarily the one it was meant for."""
+    if a.wav:
+        wav = pathlib.Path(a.wav).expanduser()
+    elif config.DISCARDED_FILE.exists():
+        wav = pathlib.Path(json.loads(config.DISCARDED_FILE.read_text())["wav"])
+    else:
+        print("withy: nothing to recover — no recording has ended untyped.", file=sys.stderr)
+        return 1
+    if not wav.exists():
+        print(f"withy: the recording is gone: {wav}", file=sys.stderr)
+        return 1
+    rec = pipeline.process(wav, type_it=False, force=True)
+    final = (rec or {}).get("final", "")
+    if not final:
+        print(f"withy: nothing could be transcribed from {wav.name}", file=sys.stderr)
+        pipeline._notify("Withy: recovery found no words", wav.name)
+        return 1
+    subprocess.run(["pbcopy"], input=final, text=True)
+    if not a.wav:
+        config.DISCARDED_FILE.unlink(missing_ok=True)
+    pipeline._notify("Withy: recording recovered", "The text is on your clipboard and in Recent dictations.")
+    print(final)
+    return 0
+
+
 def cmd_screen(a) -> int:
     """Show what Withy read from the screen: the last dictation's read, or a
     fresh one (--now) after a delay to switch to the window being tested."""
@@ -783,6 +812,10 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--text")
     q.add_argument("--dry", action="store_true", help="print, do not type")
     q.set_defaults(fn=cmd_run)
+
+    q = sub.add_parser("recover", help="transcribe the last recording that typed nothing, skipping every check")
+    q.add_argument("wav", nargs="?", help="a specific recording instead")
+    q.set_defaults(fn=cmd_recover)
 
     q = sub.add_parser("screen", help="show what was read from the screen for whisper")
     q.add_argument("--now", action="store_true", help="do a fresh read instead of showing the last one")
