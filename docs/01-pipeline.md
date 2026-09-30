@@ -88,7 +88,7 @@ fragment into a new sentence — which is why this went unnoticed.
 Measured on 39 real dictations (28 s–4 min), same model and flags otherwise:
 with timestamps, 28 came back longer, 7 identical, 4 shorter by 1–2 words;
 **230 words recovered net**, every gap inspected sitting at 0:30, 1:00 or
-1:30 ("…said first **which still does not explain this** because…"). No new
+1:30 (a whole clause missing mid-sentence each time). No new
 repetition loops. Timestamp mode is not perfect — it once swallowed four
 words inside an 18-second segment — but it fails rarely and not at every
 boundary.

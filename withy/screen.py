@@ -12,7 +12,7 @@ Three rules, each load-bearing:
     screen afterwards; learning from it would feed whisper's own guesses back.
     Recent history finals are removed from the screen text before extracting.
   - Only non-dictionary words with a capital letter or a digit are candidates
-    (YubiKey, OrwaTech, LXC, gpt-image-2). Lowercase non-words are mostly typos.
+    (YubiKey, PagerDuty, LXC, gpt-image-2). Lowercase non-words are mostly typos.
   - The terms go to WHISPER ONLY. They never join the vocabulary list sent to a
     polishing backend, which may be hosted.
 
