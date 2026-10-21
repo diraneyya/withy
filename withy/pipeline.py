@@ -173,6 +173,14 @@ def stop_and_process() -> dict:
     results are typed in the order they were spoken, whichever process wins it.
     """
     qid = queue.oldest_recording()
+    # A tap shorter than the recorder's own start-up: the key-down claimed the
+    # row, but `start` has not written the pid file yet. Give it a moment
+    # rather than declaring nothing recording and leaving ffmpeg to run on.
+    for _ in range(10):
+        if qid is not None:
+            break
+        time.sleep(0.1)
+        qid = queue.oldest_recording()
     if qid is None:
         log("stop: nothing recording")
         return {}

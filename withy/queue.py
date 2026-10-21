@@ -114,9 +114,20 @@ def oldest_recording() -> str | None:
     can land in either order, so for a moment two `.recording` markers can
     exist. The one being released is always the one that started first; taking
     the newest would close the take the user has only just begun speaking.
+
+    But never one whose stop has already begun. `capture.stop()` takes the
+    `.pid` file first and this marker is dropped only once ffmpeg has flushed
+    and exited, up to three seconds later. A second release landing in that
+    window used to pick the same marker again, find "no recorder", and leave
+    the take it should have closed running — an orphan that every later stop
+    then closed in place of the take just released, one press behind, until
+    one of them had recorded for 47 minutes with the banner stuck on Recording.
+    A marker still owns its recorder only while its `.pid` file is there.
     """
-    rec = sorted(_dir().glob("*.recording"))
-    return rec[0].stem if rec else None
+    for r in sorted(_dir().glob("*.recording")):
+        if (_dir() / f"{r.stem}.pid").exists():
+            return r.stem
+    return None
 
 
 def cancel_recording(qid: str | None = None) -> None:
@@ -237,9 +248,9 @@ def reap(max_age_hours: float = 6.0) -> None:
     A `.recording` marker outlives a crashed recorder, and a stale one would
     show a banner for a microphone that is not open.
     """
-    # A recorder whose key-up was lost keeps ffmpeg running and its marker
-    # showing "Recording" forever. Kill any whose process is already gone, and
-    # any that has been open implausibly long.
+    # A recorder whose process is already gone leaves a marker showing
+    # "Recording" forever; clear those. (A recorder that is alive but whose
+    # key-up was lost is the Spoon's to close — next key-down, or its ceiling.)
     import os as _os
     try:
         for pf in list(_dir().glob("*.pid")):

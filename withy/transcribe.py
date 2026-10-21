@@ -79,7 +79,8 @@ def clip_duration(wav: Path) -> float:
 
 def detect_language(wav: Path, model: str) -> tuple[str, float]:
     res = subprocess.run([config.WHISPER_BIN, "-m", model, "-dl", str(wav)],
-                         capture_output=True, text=True, timeout=120)
+                         capture_output=True, text=True, errors="replace",
+                         timeout=120)
     # Which stream this lands on varies by whisper.cpp build — search both.
     m = _LANG_RE.search(res.stderr + res.stdout)
     if m:
@@ -120,7 +121,12 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None,
         log(f"transcribe: no VAD model at {config.VAD_MODEL} — fixed 30s windows")
     cmd.append(str(wav))
 
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    # errors="replace": whisper.cpp can split a multi-byte character across two
+    # tokens and emit the halves as invalid UTF-8 (seen on a long recording it
+    # had decided was Japanese). Strict decoding raised UnicodeDecodeError
+    # after four minutes of transcribing, and the take was lost.
+    res = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                         timeout=600)
     if res.returncode != 0:
         log(f"transcribe[{lang}] FAILED rc={res.returncode}: {res.stderr[:300]}")
         return ""
