@@ -64,6 +64,23 @@ Your `isDown` boolean stays true and every subsequent press is a no-op.
 tick — but must **skip reconciliation while a debounce stop is pending**, or it
 races the debounce timer and double-stops the recording.
 
+### The banner sticks on "Recording" and every dictation is one press behind
+
+**Symptom:** a take that will not end; each key-up types the *previous* take's
+audio (minutes of room sound) and leaves its own one recording.
+**Cause:** key-down and key-up are separate processes, so a release can arrive
+before `start` has written the recorder's pid file. A stop that waited a fixed
+second gave up when the recorder took two — which it does whenever the cached
+microphone was cleared and has to be looked up again — leaving that recorder
+with no stop to own it. Every later release then closed the oldest take instead
+of its own. (An earlier variant: a second release during a stop's 3 s flush
+picked the same take again.)
+**Fix:** a take has three visible states — starting (marker only), live (`.pid`),
+stopping (`.pid` renamed to `.stopping`) — and a stop waits for as long as a
+take is still starting, never a fixed time. **Generalise:** when two processes
+hand off through the filesystem, make every intermediate state a distinct file;
+"absent" must not mean two different things.
+
 ### One dictation becomes two
 
 **Cause:** hand wobble, or macOS dropping and re-delivering a key event.

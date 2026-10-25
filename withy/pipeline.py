@@ -174,12 +174,15 @@ def stop_and_process() -> dict:
     """
     qid = queue.oldest_recording()
     # A tap shorter than the recorder's own start-up: the key-down claimed the
-    # row, but `start` has not written the pid file yet. Give it a moment
-    # rather than declaring nothing recording and leaving ffmpeg to run on.
-    for _ in range(10):
-        if qid is not None:
-            break
-        time.sleep(0.1)
+    # row, but `start` has not written the pid file yet. Wait for as long as
+    # that row is still starting, rather than declaring nothing recording and
+    # leaving ffmpeg to run on. The deadline only covers a `start` that died
+    # without clearing its row; a live one writes its pid or removes the row
+    # within FIRST_SAMPLE_TIMEOUT.
+    deadline = time.monotonic() + capture.FIRST_SAMPLE_TIMEOUT + 5
+    while qid is None and queue.starting_recording() is not None \
+            and time.monotonic() < deadline:
+        time.sleep(0.05)
         qid = queue.oldest_recording()
     if qid is None:
         log("stop: nothing recording")

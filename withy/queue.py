@@ -130,6 +130,22 @@ def oldest_recording() -> str | None:
     return None
 
 
+def starting_recording() -> str | None:
+    """The oldest take whose `start` has not written its pid file yet.
+
+    Neither `.pid` nor `.stopping`: the key-down claimed the row but the
+    recorder is still coming up, which takes over a second whenever the mic has
+    to be looked up again. A stop that finds no live take but one of these must
+    wait for it, however long that takes; a fixed one-second wait let a release
+    give up, leaving the take recording with nothing to close it.
+    """
+    for r in sorted(_dir().glob("*.recording")):
+        if not (_dir() / f"{r.stem}.pid").exists() \
+                and not (_dir() / f"{r.stem}.stopping").exists():
+            return r.stem
+    return None
+
+
 def cancel_recording(qid: str | None = None) -> None:
     qid = qid or oldest_recording()
     if qid:

@@ -122,6 +122,10 @@ def pid_path(qid: str) -> Path:
     return config.QUEUE_DIR / f"{qid}.pid"
 
 
+def stopping_path(qid: str) -> Path:
+    return config.QUEUE_DIR / f"{qid}.stopping"
+
+
 def progress_path(qid: str) -> Path:
     """Where ffmpeg reports what it has actually encoded."""
     return config.QUEUE_DIR / f"{qid}.progress"
@@ -210,7 +214,14 @@ def stop(qid: str) -> Path | None:
         pid = int(pf.read_text().strip())
     except ValueError:
         pid = 0
-    pf.unlink(missing_ok=True)
+    # Renamed, not deleted: a take with neither file is one whose `start` has
+    # not written its pid yet, and a stop must be able to tell that apart from
+    # one already being closed (queue.starting_recording).
+    sf = stopping_path(qid)
+    try:
+        pf.replace(sf)
+    except OSError:
+        pf.unlink(missing_ok=True)
 
     if pid:
         try:
@@ -224,6 +235,7 @@ def stop(qid: str) -> Path | None:
         except OSError:
             pass
 
+    sf.unlink(missing_ok=True)
     progress_path(qid).unlink(missing_ok=True)
     wav = part_path(qid)
     if not wav.exists() or wav.stat().st_size == 0:
