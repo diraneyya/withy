@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 from . import (capture, config, correct, format as fmt, history, inject,
-               pipeline, promptcheck, promptsync, queue, transcribe, vocab)
+               pipeline, promptcheck, promptsync, queue, whisperd, transcribe, vocab)
 from .log import log
 
 
@@ -36,6 +36,9 @@ def cmd_start(a) -> int:
     # would be invisible.
     queue.reap()
     qid = queue.start_recording()
+    # Loads the speech model while the user is still speaking; detached, so it
+    # is there for this take's key-up and every take after.
+    whisperd.warm()
     try:
         live = capture.start(qid)
     except Exception:

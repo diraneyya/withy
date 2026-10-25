@@ -123,6 +123,9 @@ DEFAULTS: dict = {
     "record_key": "rightalt",
     "whisper_model": "/opt/homebrew/share/whisper-cpp/ggml-large-v3-turbo.bin",
     "language": "auto",
+    # Keep the speech model loaded in a whisper.cpp server (~1.8 GB) instead of
+    # loading it on every take. Off: every take runs whisper-cli.
+    "whisper_server": True,
     "mic": "default",
     # Filled in automatically the first time a device is chosen, so the
     # recording path never pays for enumeration.

@@ -107,6 +107,14 @@ is reliable even on two-word clips.
 non-English audio. An English prior pushes the model back toward translating.
 **Fix:** apply the bias prompt only when the detected language is English.
 
+### The server's text has "haven 't" where the CLI had "haven't"
+
+**Cause:** `whisper-server` returns one line per segment, and a segment can end
+mid-word, between "haven" and "'t"; joining lines with a space splits the
+contraction. Its `json` format does it everywhere.
+**Fix:** request `response_format=text` and rejoin `\w\s+'(t|s|re|ve|ll|d|m)\b`
+in `whisperd.py`, which is the only place this text comes from.
+
 ### A six-word phrase appears 56 times in a row
 
 **Cause:** whisper.cpp conditions each 30-second decode window on previously decoded

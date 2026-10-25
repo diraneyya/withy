@@ -23,7 +23,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from . import config
+from . import config, whisperd
 from .log import log
 
 # Whisper emits a placeholder for noise-only audio: "(silence)", "[BLANK_AUDIO]",
@@ -78,6 +78,9 @@ def clip_duration(wav: Path) -> float:
 
 
 def detect_language(wav: Path, model: str) -> tuple[str, float]:
+    served = whisperd.detect_language(wav, model)
+    if served:
+        return served
     res = subprocess.run([config.WHISPER_BIN, "-m", model, "-dl", str(wav)],
                          capture_output=True, text=True, errors="replace",
                          timeout=120)
@@ -91,6 +94,11 @@ def detect_language(wav: Path, model: str) -> tuple[str, float]:
 
 def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None,
                       vad: bool = True) -> str:
+    # The server always runs with pause detection; recovery (vad=False) is the
+    # one path that needs it off, so that goes to whisper-cli.
+    served = whisperd.transcribe(wav, lang, model, prompt) if vad else None
+    if served is not None:
+        return _clean(served)
     cmd = [config.WHISPER_BIN, "-m", model,
            "--no-prints",   # stdout is the transcript and nothing else
            "-mc", "0",      # no cross-window conditioning — the loop guard
@@ -130,7 +138,11 @@ def transcribe_forced(wav: Path, lang: str, model: str, prompt: str | None,
     if res.returncode != 0:
         log(f"transcribe[{lang}] FAILED rc={res.returncode}: {res.stderr[:300]}")
         return ""
-    text = strip_timestamps(res.stdout)
+    return _clean(res.stdout)
+
+
+def _clean(stdout: str) -> str:
+    text = strip_timestamps(stdout)
     if _EMPTY_RE.fullmatch(text):
         log(f"transcribe: empty/noise output {text!r}")
         return ""

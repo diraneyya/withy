@@ -13,6 +13,7 @@ This file is for changing the code.
 withy/          the pipeline (Python, stdlib only, runs on macOS's own python3)
   capture.py         ffmpeg -> 16 kHz mono WAV
   transcribe.py      whisper.cpp, two passes (detect language, then force it)
+  whisperd.py        the resident whisper-server those passes use; whisper-cli is the fallback
   correct.py         the deterministic rules that survived measurement
   format.py          the local LLM formatting pass + THE GATE
   promptsync.py      three-way merge of the user's prompt.md with ours

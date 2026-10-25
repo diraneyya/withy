@@ -103,10 +103,14 @@ called Withy, and why there is no signed bundle in the menu bar of its own. It
 was written quickly, with an LLM, by someone who wanted it to exist — and it
 works, every day, as the tool its author dictates with.
 
-**It is slower than the commercial ones.** Transcription runs on your CPU, so
-there is a pause after you let go that a paid tool with a datacentre behind it
-does not have. The queue makes that pause livable rather than absent. Pointing
-it at a transcription server you control is the obvious next step and is not
+**It is slower than the commercial ones.** Transcription runs on your own
+machine, so there is a pause after you let go that a paid tool with a datacentre
+behind it does not have. Withy keeps the speech model loaded in a small local
+server so that pause is spent transcribing rather than loading — about 2 s for a
+short dictation — at the price of ~1.8 GB of memory held while it runs
+(`"whisper_server": false` in `~/.config/withy/settings.json` gives the memory
+back). The queue makes the rest of the pause livable rather than absent.
+Pointing it at a transcription server on another machine you control is not
 built yet.
 
 **The polishing is good, not perfect.** It is a prompt and a safety check, both

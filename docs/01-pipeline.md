@@ -55,9 +55,11 @@ measured p = 0.994 for English, 0.955 for a two-word Arabic phrase, 0.998 for an
 Arabic sentence. It is the *task* selection that is unstable. So: detect first,
 then force.
 
-The cost is roughly a second of extra latency, which is hidden behind the UI's
-"transcribing…" state. A later optimisation could detect from the first 3 seconds
-of audio only, or skip detection entirely for users who never code-switch.
+The cost is roughly a second of extra latency with `whisper-cli` (most of it
+loading the model), ~0.8 s against the resident server (see *Performance*). A
+later optimisation could detect from the first few seconds of audio *while the
+user is still speaking*, or skip detection entirely for users who never
+code-switch.
 
 ---
 
@@ -235,19 +237,32 @@ with Metal:
 Measured just now on the sample `jfk.wav` that ships with the Homebrew formula,
 so it is reproducible: `whisper-cli -m ggml-large-v3-turbo.bin`.
 
-**Model load dominates.** Each of the two passes reloads 1.6 GB from disk, and
-that — not inference — is most of the 5.5 s. For push-to-talk this is tolerable
-and keeps idle memory at zero, but it is the obvious thing to fix first:
+**Model load dominates — so the model stays loaded.** Each `whisper-cli` pass
+reloads 1.6 GB (~1.6 s), and with two passes that, not inference, was most of a
+short take's wait. `withy/whisperd.py` runs whisper.cpp's own `whisper-server`
+(same Homebrew formula) on `127.0.0.1:8178` with the same model and the same
+`-mc 0 --vad` flags, and both passes POST to it:
 
-- Run whisper.cpp as a **persistent server** (`whisper-server` ships with the
-  same formula) and POST audio to localhost. Same model, same flags, no reload,
-  at the cost of ~2 GB resident.
-- Or **link `libwhisper` directly** in a long-running agent, which is what a
-  production build should do anyway (see `docs/06-plugin-spec.md`).
+- **Started on key-down**, detached, so it loads while the user is speaking and
+  outlives the process that started it. `/tmp/withy-whisper-server.json` records
+  its pid, model and VAD model; a change of model restarts it on the next press.
+- **`whisper-cli` remains the fallback**, chosen silently per take: server not
+  running, still loading after 3 s, a different model requested (the benchmark),
+  pause detection off (`withy recover`), or a request that fails.
+- **Cost:** ~1.8 GB resident. `"whisper_server": false` turns it off.
 
-Either turns a ~5.5 s round trip into roughly the 1–2 s of actual inference, and
-lets you drop the separate detection pass to a fraction of a second by running it
-against an already-loaded model.
+Measured on real dictations (M2 Pro, `large-v3-turbo`, detection + transcription):
+
+| Take | `whisper-cli` × 2 | resident server |
+|---|---|---|
+| 5 s of audio, 8 words | 3.9 s | **2.1 s** |
+| 87 s of audio, 243 words | 7.4 s | **5.0 s** |
+
+Text is the same up to decoding variation (98–100 % of words identical; where
+they differed, the server's reading was as good or better). What remains on a
+long take is real inference, which only transcribing at pauses *during* the
+recording would hide. Linking `libwhisper` directly in a long-running agent is
+still what a production build should do (see `docs/06-plugin-spec.md`).
 
 One-time cost worth knowing about: the very first whisper.cpp invocation after
 install compiles its Metal library (~9 s, logged as `ggml_metal_library_init`).

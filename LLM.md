@@ -200,6 +200,7 @@ the install:
 ## Uninstall
 
 ```bash
+pkill -f 'whisper-server .*--port 8178'   # the resident speech model
 rm -rf ~/.local/share/withy ~/.config/withy \
        ~/.local/bin/withy ~/.hammerspoon/Spoons/Withy.spoon
 ```
